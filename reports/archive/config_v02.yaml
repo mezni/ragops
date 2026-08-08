@@ -1,6 +1,0 @@
-measures:
-  - mesure_name: "Total Reel over 4years"
-    mesure_type: "SUM"
-    table_name: "reel"
-    column_name: "reel"
-    mesure_format: "### ### ### $"

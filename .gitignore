@@ -1,0 +1,73 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# C extensions
+*.so
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+*.egg-info/
+.installed.cfg
+*.egg
+/.coverage
+.hypothesis/
+.mypy_cache/
+.tox/
+venv/
+env/
+.venv/
+
+# IDE / Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Environment variables
+.env
+
+# Databases
+*.db
+*.sqlite
+*.sqlite3
+
+# Logs
+*.log
+
+# UVICORN / FASTAPI
+uvicorn.pid
+
+# Pytest
+.pytest_cache/
+
+# UV (Python package manager)
+uv.lock
+
+# Streamlit
+.streamlit/
+
+# Docker
+.dockerinit
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Ruffle
+ruff cache
+
+# mypy
+.mypy_cache/
+
+# Pylance
+.python-type-stubs/
+
+# Pyright
+.python-type-stubs/

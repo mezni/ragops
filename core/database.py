@@ -114,7 +114,8 @@ class TextChunkModel(Base):
     chunk_index: Mapped[int] = mapped_column(Integer, nullable=False)
     chunk_text: Mapped[str] = mapped_column(Text, nullable=False)
     vector_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
-    
+    is_purged: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False
     )
@@ -138,92 +139,116 @@ class DatabaseManager:
         Base.metadata.create_all(bind=self.engine)
 
     @staticmethod
-    def compute_hash(content: Union[str, bytes]) -> str:
-        """Generates SHA-256 signature for content deduplication and change detection."""
-        if isinstance(content, str):
-            content = content.encode("utf-8")
-        return hashlib.sha256(content).hexdigest()
+    def compute_hash(raw_data: Union[str, bytes]) -> str:
+        """Generates SHA-256 signature for payload deduplication and change detection."""
+        if isinstance(raw_data, str):
+            raw_data = raw_data.encode("utf-8")
+        return hashlib.sha256(raw_data).hexdigest()
 
-    def sync_payload(
-        self, payload_id: str, source_uri: str, raw_content: str, content_type: str = "text/plain"
+    def upsert_versioned_payload(
+        self, payload
     ) -> Tuple[RawPayloadModel, str]:
+        """Synchronizes a RawPayload with the database, returning (model, status).
+
+        Status is one of:
+            CREATED  - new payload, assigned version 1
+            UPDATED  - content changed, old version deactivated, new vN+1 created
+            UNCHANGED - content identical to current active version, no-op
         """
-        Synchronizes a payload with the database:
-        - If new: Creates v1 (status: CREATED)
-        - If existing & changed: Deactivates vN, creates vN+1 (status: UPDATED)
-        - If existing & unchanged: Keeps active version (status: UNCHANGED)
-        """
-        content_hash = self.compute_hash(raw_content)
+        content_hash = self.compute_hash(payload.raw_content)
 
         with self.SessionLocal() as session:
-            # Query current active version
             stmt = (
                 select(RawPayloadModel)
-                .where(RawPayloadModel.payload_id == payload_id, RawPayloadModel.is_active.is_(True))
+                .where(
+                    RawPayloadModel.payload_id == payload.payload_id,
+                    RawPayloadModel.is_active.is_(True),
+                )
                 .order_by(RawPayloadModel.version.desc())
             )
-            existing_payload = session.execute(stmt).scalar_one_or_none()
+            existing = session.execute(stmt).scalar_one_or_none()
 
-            if existing_payload is None:
-                # Scenario 1: New payload -> create Version 1
+            if existing is None:
                 new_payload = RawPayloadModel(
-                    payload_id=payload_id,
+                    payload_id=payload.payload_id,
                     version=1,
                     file_hash=content_hash,
-                    source_uri=source_uri,
-                    raw_content=raw_content,
-                    content_type=content_type,
+                    source_uri=payload.source_uri,
+                    raw_content=payload.raw_content,
+                    content_type=payload.content_type,
                     is_active=True,
                     is_deleted=False,
                 )
                 session.add(new_payload)
                 session.commit()
                 session.refresh(new_payload)
-                logger.info("Created new payload version", payload_id=payload_id, version=1)
+                logger.info(
+                    "Created new payload version",
+                    payload_id=payload.payload_id,
+                    version=1,
+                )
                 return new_payload, "CREATED"
 
-            if existing_payload.file_hash == content_hash and not existing_payload.is_deleted:
-                # Scenario 2: Unchanged content -> return current active version
-                logger.info("Payload content unchanged", payload_id=payload_id, version=existing_payload.version)
-                return existing_payload, "UNCHANGED"
+            if existing.file_hash == content_hash and not existing.is_deleted:
+                logger.info(
+                    "Payload content unchanged",
+                    payload_id=payload.payload_id,
+                    version=existing.version,
+                )
+                return existing, "UNCHANGED"
 
-            # Scenario 3: Content updated -> Deactivate old, increment version to vN+1
-            existing_payload.is_active = False
-            next_version = existing_payload.version + 1
+            existing.is_active = False
+            next_version = existing.version + 1
 
             updated_payload = RawPayloadModel(
-                payload_id=payload_id,
+                payload_id=payload.payload_id,
                 version=next_version,
                 file_hash=content_hash,
-                source_uri=source_uri,
-                raw_content=raw_content,
-                content_type=content_type,
+                source_uri=payload.source_uri,
+                raw_content=payload.raw_content,
+                content_type=payload.content_type,
                 is_active=True,
                 is_deleted=False,
             )
             session.add(updated_payload)
             session.commit()
             session.refresh(updated_payload)
-            logger.info("Updated payload to new version", payload_id=payload_id, new_version=next_version)
+            logger.info(
+                "Updated payload to new version",
+                payload_id=payload.payload_id,
+                new_version=next_version,
+            )
             return updated_payload, "UPDATED"
 
-    def mark_deleted_missing_payloads(self, active_source_payload_ids: List[str]) -> List[str]:
-        """Soft-deletes payloads present in the database but missing from active source scans."""
+    def sync_deleted_payloads(self, active_source_ids: List[str]) -> List[str]:
+        """Marks payloads missing from active source scans as deleted and
+        flags their associated chunks for purge.
+
+        Returns a list of payload_ids that were soft-deleted.
+        """
         with self.SessionLocal() as session:
             stmt = select(RawPayloadModel).where(
                 RawPayloadModel.is_active.is_(True),
                 RawPayloadModel.is_deleted.is_(False),
-                RawPayloadModel.payload_id.not_in(active_source_payload_ids),
+                RawPayloadModel.payload_id.not_in(active_source_ids),
             )
             stale_payloads = session.execute(stmt).scalars().all()
-            deleted_ids = []
+            deleted_ids: List[str] = []
 
             for payload in stale_payloads:
                 payload.is_deleted = True
                 payload.is_active = False
                 deleted_ids.append(payload.payload_id)
 
+                for doc in payload.parsed_documents:
+                    for chunk in doc.chunks:
+                        chunk.is_purged = True
+
             session.commit()
             if deleted_ids:
-                logger.info("Soft-deleted missing payloads", count=len(deleted_ids), deleted_ids=deleted_ids)
+                logger.info(
+                    "Soft-deleted missing payloads",
+                    count=len(deleted_ids),
+                    deleted_ids=deleted_ids,
+                )
             return deleted_ids

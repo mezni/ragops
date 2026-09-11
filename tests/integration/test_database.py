@@ -2,8 +2,19 @@ import pytest
 from sqlalchemy import select, text
 
 from core.database import RawPayloadModel
+from loaders.base import RawPayload
 
 pytestmark = pytest.mark.integration
+
+
+def make_payload(payload_id, content, uri="s3://bucket/a.txt", content_type="text/plain"):
+    return RawPayload(
+        payload_id=payload_id,
+        source_type="test",
+        source_uri=uri,
+        raw_content=content,
+        content_type=content_type,
+    )
 
 
 def test_schema_columns_and_alembic(db):
@@ -23,8 +34,8 @@ def test_schema_columns_and_alembic(db):
         assert payload_id_uniqueness is True
 
 
-def test_sync_payload_creates_v1(db):
-    payload, status = db.sync_payload("doc-1", "s3://bucket/a.txt", "content v1")
+def test_upsert_versioned_payload_creates_v1(db):
+    payload, status = db.upsert_versioned_payload(make_payload("doc-1", "content v1"))
 
     assert status == "CREATED"
     assert payload.version == 1
@@ -36,17 +47,17 @@ def test_sync_payload_creates_v1(db):
         assert row.file_hash == db.compute_hash("content v1")
 
 
-def test_sync_payload_unchanged_keeps_version(db):
-    db.sync_payload("doc-1", "s3://bucket/a.txt", "content v1")
-    payload, status = db.sync_payload("doc-1", "s3://bucket/a.txt", "content v1")
+def test_upsert_versioned_payload_unchanged_keeps_version(db):
+    db.upsert_versioned_payload(make_payload("doc-1", "content v1"))
+    payload, status = db.upsert_versioned_payload(make_payload("doc-1", "content v1"))
 
     assert status == "UNCHANGED"
     assert payload.version == 1
 
 
-def test_sync_payload_updated_bumps_version_and_deactivates_old(db):
-    db.sync_payload("doc-1", "s3://bucket/a.txt", "content v1")
-    payload, status = db.sync_payload("doc-1", "s3://bucket/a.txt", "content v2")
+def test_upsert_versioned_payload_updated_bumps_version_and_deactivates_old(db):
+    db.upsert_versioned_payload(make_payload("doc-1", "content v1"))
+    payload, status = db.upsert_versioned_payload(make_payload("doc-1", "content v2"))
 
     assert status == "UPDATED"
     assert payload.version == 2
@@ -64,21 +75,21 @@ def test_sync_payload_updated_bumps_version_and_deactivates_old(db):
         ]
 
 
-def test_sync_payload_restores_previous_content_as_new_version(db):
-    db.sync_payload("doc-1", "s3://bucket/a.txt", "content v1")
-    db.sync_payload("doc-1", "s3://bucket/a.txt", "content v2")
-    payload, status = db.sync_payload("doc-1", "s3://bucket/a.txt", "content v1")
+def test_upsert_versioned_payload_restores_previous_content_as_new_version(db):
+    db.upsert_versioned_payload(make_payload("doc-1", "content v1"))
+    db.upsert_versioned_payload(make_payload("doc-1", "content v2"))
+    payload, status = db.upsert_versioned_payload(make_payload("doc-1", "content v1"))
 
     assert status == "UPDATED"
     assert payload.version == 3
 
 
-def test_mark_deleted_missing_payloads(db):
-    db.sync_payload("doc-1", "s3://bucket/a.txt", "content v1")
-    db.sync_payload("doc-2", "s3://bucket/b.txt", "content v1")
-    db.sync_payload("doc-3", "s3://bucket/c.txt", "content v1")
+def test_sync_deleted_payloads(db):
+    db.upsert_versioned_payload(make_payload("doc-1", "content v1"))
+    db.upsert_versioned_payload(make_payload("doc-2", "content v1"))
+    db.upsert_versioned_payload(make_payload("doc-3", "content v1"))
 
-    deleted = db.mark_deleted_missing_payloads(["doc-1", "doc-3"])
+    deleted = db.sync_deleted_payloads(["doc-1", "doc-3"])
 
     assert sorted(deleted) == ["doc-2"]
 
@@ -90,7 +101,40 @@ def test_mark_deleted_missing_payloads(db):
         assert state["doc-3"] == (True, False)
 
 
-def test_mark_deleted_with_no_stale_payloads(db):
-    db.sync_payload("doc-1", "s3://bucket/a.txt", "content v1")
+def test_sync_deleted_payloads_flags_chunks_for_purge(db):
+    from core.database import TextChunkModel
 
-    assert db.mark_deleted_missing_payloads(["doc-1"]) == []
+    payload_model, _ = db.upsert_versioned_payload(make_payload("doc-1", "content v1"))
+    with db.SessionLocal() as session:
+        payload_model = session.merge(payload_model)
+        from core.database import DocumentModel
+
+        doc = DocumentModel(
+            payload_id=payload_model.payload_id,
+            payload_version=payload_model.version,
+            title="doc 1",
+            cleaned_text="content v1",
+        )
+        session.add(doc)
+        session.flush()
+        session.add(
+            TextChunkModel(
+                chunk_id="chunk-1",
+                document_id=doc.id,
+                chunk_index=0,
+                chunk_text="content v1",
+            )
+        )
+        session.commit()
+
+    db.sync_deleted_payloads([])
+
+    with db.SessionLocal() as session:
+        chunk = session.execute(select(TextChunkModel)).scalar_one()
+        assert chunk.is_purged is True
+
+
+def test_sync_deleted_with_no_stale_payloads(db):
+    db.upsert_versioned_payload(make_payload("doc-1", "content v1"))
+
+    assert db.sync_deleted_payloads(["doc-1"]) == []

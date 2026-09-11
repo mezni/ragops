@@ -1,0 +1,16 @@
+[
+  {
+    "id": "eval_001",
+    "question": "What is the primary vector search metric used in Qdrant?",
+    "expected_payload_id": "doc_qdrant_config",
+    "expected_context_chunks": ["doc_qdrant_config_chunk_1", "doc_qdrant_config_chunk_2"],
+    "ground_truth_answer": "Qdrant utilizes Cosine distance, Dot product, or Euclidean distance metrics for vector indexing and retrieval."
+  },
+  {
+    "id": "eval_002",
+    "question": "How are versioned chunk payloads isolated during search?",
+    "expected_payload_id": "doc_version_policy",
+    "expected_context_chunks": ["doc_version_policy_chunk_0"],
+    "ground_truth_answer": "Payloads are isolated using Qdrant payload metadata filter expressions matching version and is_active fields."
+  }
+]

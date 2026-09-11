@@ -23,4 +23,5 @@ testpaths = ["tests/unit", "tests/integration"]
 pythonpath = ["."]
 markers = [
     "integration: requires a live PostgreSQL database with alembic migrations applied",
+    "unit: pure unit tests, no external services required",
 ]

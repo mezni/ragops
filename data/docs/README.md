@@ -172,3 +172,5 @@ Dev:
 - Embedding fallback uses `hashlib.md5(text).hexdigest()` → deterministic 1536-dim vectors when `OPENAI_API_KEY` unset
 - Database: PostgreSQL 16 with `pgvector` extension (`pgvector/pgvector:pg16` container `ragops_postgres`)
 - Credentials (via docker inspect): `ragops:ragops@localhost:5432/ragops`
+
+## ((()))

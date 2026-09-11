@@ -1,5 +1,4 @@
 # ragops
-
 A RAG (Retrieval-Augmented Generation) pipeline system for document ingestion, chunking, embedding, and retrieval.
 
 ## 📦 Installation
@@ -139,6 +138,53 @@ Settings loaded from `.env` (or environment variables):
 | `OPENAI_API_KEY` | _(set in env)_ | Required for OpenAI embeddings |
 
 Run `setup_logging()` once at application startup to configure structured logging (JSON or console).
+
+## 🧪 Testing
+
+```bash
+# Run all unit tests
+uv run pytest -q
+
+# Run integration tests (requires live PostgreSQL)
+uv run pytest -q --marker integration
+```
+
+56 tests total (36 previously existing + 20 new stage/builder tests).
+
+## 📦 Dependencies
+
+Core:
+- `sqlalchemy`, `psycopg2-binary`, `alembic`, `pydantic-settings`, `python-dotenv`
+- `pypdf`, `structlog`, `rich`
+
+Indexing pipeline:
+- Added `typer==0.15.4`, `rich==15.0.0` for CLI
+
+Dev:
+- `pytest>=9.1.1`
+
+## 📊 Executive Summary
+
+Your codebase implements a modular Versioned Retrieval-Augmented Generation (RAG) Platform. Built with Python, Streamlit, Qdrant, and PostgreSQL, the system enables multi-tenant document ingestion, precise payload versioning, advanced retrieval stages (query transformations and cross-encoder reranking), and automated quality evaluation.
+
+### Problems Solved
+
+| Problem | Solution |
+|---------|----------|
+| **Stale Information & Version Drift** | Fixes outdated context retrieval by attaching immutable version tags and `is_active` flags to vector payloads |
+| **Retrieval Hallucination & Bad Context** | Solves semantic search noise through multi-stage retrieval: Query Transformations (Rewrite/HyDE) → Vector Search → Cross-Encoder Reranking → Synthesized Grounded Answers with cited chunks |
+| **Lack of QA Quality Metrics** | Replaces manual testing with automated evaluation pipelines that track Context Precision, Context Recall, Faithfulness, and Mean Reciprocal Rank (MRR) |
+| **Operational & UI Fragmentations** | Unifies vector search, document administration, evaluation benchmarking, and container orchestration into a single web application and developer CLI |
+
+### What Comes Next to Be Production-Ready
+
+| Layer | Action Item |
+|-------|-------------|
+| **Security & Auth** | Implement API key authentication, Role-Based Access Control (RBAC), and tenant-isolated metadata filters |
+| **Observability** | Integrate tracing tools (e.g., Langfuse or OpenTelemetry) to track token usage, query latencies, and LLM call costs |
+| **Retrieval Optimization** | Upgrade basic vector search to Hybrid Search (combining Sparse BM25 + Dense Qdrant vectors with Reciprocal Rank Fusion) |
+| **Async Processing** | Offload document parsing, chunking, and vector embedding pipelines to background task queues (Celery / Redis / Temporal) |
+| **LLM Guardrails** | Add input prompt injection defenses and output structured JSON validators (using Pydantic or Guardrails AI) |
 
 ## 🧪 Testing
 

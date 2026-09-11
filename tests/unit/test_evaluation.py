@@ -57,6 +57,39 @@ class TestRetrievalMetrics:
         assert result["context_precision"] == round(2.0 / 3, 4)  # 2 hits / 3 retrieved
         assert result["context_recall"] == round(2.0 / 2, 4)  # 2 hits / 2 expected
 
+    def test_evaluate_retrieval_single_retrieved_match(self):
+        """When only 1 chunk is retrieved and it matches."""
+        result = evaluate_retrieval(
+            retrieved_chunk_ids=["chunk_1"],
+            expected_chunk_ids=["chunk_1"],
+        )
+        assert result["hit_rate"] == 1.0
+        assert result["mrr"] == 1.0  # rank 1 -> 1/1
+        assert result["context_precision"] == 1.0  # 1/1
+        assert result["context_recall"] == 1.0  # 1/1
+
+    def test_evaluate_retrieval_single_retrieved_no_match(self):
+        """When only 1 chunk is retrieved and it doesn't match."""
+        result = evaluate_retrieval(
+            retrieved_chunk_ids=["chunk_1"],
+            expected_chunk_ids=["chunk_2"],
+        )
+        assert result["hit_rate"] == 0.0
+        assert result["mrr"] == 0.0
+        assert result["context_precision"] == 0.0  # 0/1
+        assert result["context_recall"] == 0.0  # 0/1
+
+    def test_evaluate_retrieval_all_retrieved_match(self):
+        """When all retrieved chunks match and there are no extra."""
+        result = evaluate_retrieval(
+            retrieved_chunk_ids=["chunk_1", "chunk_2"],
+            expected_chunk_ids=["chunk_1", "chunk_2"],
+        )
+        assert result["hit_rate"] == 1.0
+        assert result["mrr"] == 1.0 / 1  # first at rank 1
+        assert result["context_precision"] == 1.0  # 2/2
+        assert result["context_recall"] == 1.0  # 2/2
+
 
 class TestGenerationMetrics:
     def test_evaluate_generation_with_answer(self):
@@ -78,6 +111,26 @@ class TestGenerationMetrics:
         )
         assert result["faithfulness"] == 0.0
         assert result["answer_relevance"] == 0.0
+
+    def test_evaluate_generation_no_ground_truth(self):
+        """When ground_truth is empty string."""
+        result = evaluate_generation(
+            generated_answer="Some answer",
+            retrieved_contexts=["some context"],
+            ground_truth="",
+        )
+        assert "faithfulness" in result
+        assert "answer_relevance" in result
+
+    def test_evaluate_generation_no_contexts(self):
+        """When retrieved_contexts is empty."""
+        result = evaluate_generation(
+            generated_answer="Some answer",
+            retrieved_contexts=[],
+            ground_truth="some ground truth",
+        )
+        assert "faithfulness" in result
+        assert "answer_relevance" in result
 
 
 class TestEvaluationPipeline:
@@ -105,6 +158,15 @@ class TestEvaluationPipeline:
         assert summary["total_test_cases"] == 2
         assert summary["mean_mrr"] == round((0.8 + 0.6) / 2, 4)
         assert summary["mean_hit_rate"] == round((0.9 + 0.5) / 2, 4)
+        assert summary["mean_context_precision"] == round((0.7 + 0.4) / 2, 4)
+        assert summary["mean_context_recall"] == round((0.6 + 0.3) / 2, 4)
+        assert summary["mean_faithfulness"] == round((0.9 + 0.5) / 2, 4)
+        assert summary["mean_answer_relevance"] == round((0.8 + 0.3) / 2, 4)
+
+    def test_compute_summary_empty(self):
+        pipeline = EvaluationPipeline()
+        summary = pipeline._compute_summary([])
+        assert summary == {}
 
 
 class TestConsoleReporter:
@@ -135,6 +197,17 @@ class TestConsoleReporter:
 
     def test_print_report_empty(self):
         ConsoleReporter.print_report({"summary": {}, "detailed_results": []})
+
+    def test_print_report_missing_keys(self):
+        """Test reporter handles missing keys gracefully."""
+        ConsoleReporter.print_report({"summary": {}, "detailed_results": []})
+
+    def test_print_report_partial_summary(self):
+        """Test reporter with partial summary keys."""
+        ConsoleReporter.print_report({
+            "summary": {"total_test_cases": 1},
+            "detailed_results": [],
+        })
 
 
 class TestJSONReporter:
@@ -167,5 +240,18 @@ class TestJSONReporter:
             with open(tmp_path, "r") as f:
                 loaded = json.load(f)
             assert loaded == {}
+        finally:
+            os.unlink(tmp_path)
+
+    def test_export_partial_output(self):
+        """Test reporter with partial output dict."""
+        with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as tmp:
+            tmp_path = tmp.name
+
+        try:
+            JSONReporter.export({"summary": {"total_test_cases": 1}}, tmp_path)
+            with open(tmp_path, "r") as f:
+                loaded = json.load(f)
+            assert loaded == {"summary": {"total_test_cases": 1}}
         finally:
             os.unlink(tmp_path)

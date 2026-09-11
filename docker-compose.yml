@@ -1,0 +1,35 @@
+name: ragops
+
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-ragops}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ragops}
+      POSTGRES_DB: ${POSTGRES_DB:-ragops}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-ragops} -d ${POSTGRES_DB:-ragops}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  app:
+    build: .
+    restart: "no"
+    env_file: .env
+    depends_on:
+      db:
+        condition: service_healthy
+    # Applies schema migrations on behalf of the pipeline. Update the command
+    # (or uncomment the pipeline step) when `main.py` / an entrypoint exists:
+    #
+    #   command: ["sh", "-c", "uv run --no-sync alembic upgrade head && uv run --no-sync python main.py"]
+    command: ["uv", "run", "--no-sync", "alembic", "upgrade", "head"]
+
+volumes:
+  pgdata:

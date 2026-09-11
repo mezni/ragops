@@ -10,3 +10,15 @@ dependencies = [
     "python-dotenv>=1.0.0",
     "alembic>=1.19.2",
 ]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests/unit", "tests/integration"]
+pythonpath = ["."]
+markers = [
+    "integration: requires a live PostgreSQL database with alembic migrations applied",
+]

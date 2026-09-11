@@ -1,0 +1,20 @@
+[project]
+name = "my_rag_platform"
+version = "0.1.0"
+description = "Modular RAG Platform with production-ready pipelines"
+requires-python = ">=3.12"
+dependencies = [
+    "pydantic>=2.0",
+    "structlog>=23.0",
+    "rich>=13.0",
+]
+
+dev-dependencies = [
+    "pytest>=9.1.1",
+    "pytest-asyncio",
+    "types-requests",
+]
+
+[project.tool.pytest]
+# Python test discovery
+norepick =

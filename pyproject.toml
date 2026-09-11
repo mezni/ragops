@@ -11,6 +11,8 @@ dependencies = [
     "alembic>=1.19.2",
     "pypdf>=6.18.1",
     "requests>=2.34.2",
+    "typer>=0.15.0,<0.16.0",
+    "rich>=13.0.0",
 ]
 
 [dependency-groups]

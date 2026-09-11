@@ -252,7 +252,13 @@ class TestPipelineIntegration:
 
         pipeline = build_indexing_pipeline()
 
+        assert pipeline.name == "VersionedIndexingPipeline"
         assert len(pipeline.stages) == 3
+        assert [type(stage).__name__ for stage in pipeline.stages] == [
+            "IngestionStage",
+            "ChunkingStage",
+            "EmbeddingStage",
+        ]
 
         raw_payloads = [
             RawPayload(

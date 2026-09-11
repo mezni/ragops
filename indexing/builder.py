@@ -8,16 +8,19 @@ from typing import Any, Dict, List
 from core.database import DatabaseManager
 from core.logging import get_logger
 from core.pipeline import GeneralizedPipeline
-from indexing.stages import ChunkingStage, EmbeddedChunk, EmbeddingStage, IngestionStage
+from indexing.stages.chunking import ChunkingStage
+from indexing.stages.embedding import EmbeddingStage
+from indexing.stages.ingestion import IngestionStage
+from indexing.stages.models import EmbeddedChunk
 from loaders.base import BaseSourceLoader, RawPayload
 
 logger = get_logger(__name__)
 
 
-def build_indexing_pipeline() -> GeneralizedPipeline[List[RawPayload], List[EmbeddedChunk]]:
+def build_indexing_pipeline() -> GeneralizedPipeline:
     """Assembles and returns a GeneralizedPipeline configured for indexing."""
-    return GeneralizedPipeline[List[RawPayload], List[EmbeddedChunk]](
-        name="IndexingPipeline",
+    return GeneralizedPipeline(
+        name="VersionedIndexingPipeline",
         stages=[
             IngestionStage(),
             ChunkingStage(),

@@ -1,1 +1,0 @@
-"""Core infrastructure: database access and logging."""

@@ -8,6 +8,18 @@
 
 **Input**: User description: "Project scaffolding — read Phase 0 plan"
 
+## Overview
+
+Phase 0 of the RAG indexing pipeline: deliver an executable skeleton with
+**no business logic** (Constitution Article VII). The "read Phase 0 plan"
+story is the entry point — the scaffold goals, exit criteria, and
+implementation order are defined in `docs/PLAN.md` Phase 0. This spec
+operationalizes those goals into concrete artifacts: repository layout
+(`docs/ARCHITECTURE.md` §3), a Docker topology (Postgres + pgvector + app), a
+Pydantic-validated `PipelineConfig`, a SQLAlchemy engine/pool/session factory,
+an Alembic initialization with a `CREATE EXTENSION IF NOT EXISTS vector`
+migration, and a CLI (`pipeline db upgrade`, `pipeline healthcheck`).
+
 ## User Scenarios & Testing *(mandatory)*
 
 <!--
@@ -23,92 +35,96 @@
   - Demonstrated to users independently
 -->
 
-### User Story 1 - Project scaffolding (Priority: P1)
+### User Story 1 - Scaffold Core (Priority: P1)
 
-As a new contributor, I want to read the Phase 0 plan so that I understand the project scaffolding goals, exit criteria, and recommended implementation order.
+As a new contributor, I want a runnable project skeleton so that I can boot
+Postgres with pgvector, apply migrations, and verify connectivity from day one.
 
-**Why this priority**: P1 — Foundational knowledge of the project structure is required before any implementation work begins; without understanding Phase 0, subsequent phases cannot be properly contextualized.
+**Why this priority**: P1 — the executable skeleton is the Phase 0 sprint goal
+and the prerequisite for all later phases; nothing else in the scaffold can be
+demonstrated without it.
 
-**Independent Test**: Can be fully tested by verifying that the Phase 0 plan content is accessible, correctly displays all scaffold goals and exit criteria, and allows a reader to understand the recommended implementation order.
+**Independent Test**: `docker compose up -d postgres` starts Postgres with
+pgvector; `python -m pipeline db upgrade` applies migration 0001 without
+error; `python -m pipeline healthcheck` prints `{"status":"ok",...}` and
+exits `0`.
 
 **Acceptance Scenarios**:
-1. **Given** a user navigates to the Phase 0 plan, **When** the document is rendered, **Then** all scaffold goals and exit criteria are visible and correctly formatted.
-2. **Given** a user reads the Phase 0 plan, **When** they review the exit criteria, **Then** the criteria are clear and measurable as specified in the document.
+1. **Given** the repository is checked out, **When** I run `docker compose up -d postgres` from `docker/`, **Then** the `postgres` service becomes `healthy` running the `pgvector/pgvector:pg16` image.
+2. **Given** Postgres is up, **When** I run `python -m pipeline db upgrade`, **Then** migration 0001 applies the `vector` extension and the command exits `0`.
+3. **Given** migration 0001 has run, **When** I run `python -m pipeline healthcheck`, **Then** a `SELECT 1` succeeds through the configured session factory and the command prints `{"status":"ok",...}`.
 
 ---
 
 ### User Story 2 - Verify Scaffolding Content (Priority: P2)
 
-As a reviewer, I want to verify that the Phase 0 plan content is complete and well-structured so that I can confirm the scaffolding is properly configured.
+As a reviewer, I want the scaffold verified by tests so that I can trust the
+skeleton is correctly configured before referencing it in later phases.
 
-**Why this priority**: P2 — Content verification ensures the plan document is not corrupted or incomplete before teams begin referencing it.
+**Why this priority**: P2 — content verification (Constitution Article VI)
+ensures the skeleton is not broken or misconfigured before teams build on it.
 
-**Independent Test**: Can be fully tested by checking that all expected sections (Phase goals, exit criteria, Docker config, pipeline stages) are present in the rendered document.
+**Independent Test**: `uv run pytest` passes with the docker `postgres`
+service running — unit tests (config validation, engine/session lifecycle) and
+an integration test (`db upgrade` → vector extension present → `SELECT 1`).
 
 **Acceptance Scenarios**:
-1. **Given** the Phase 0 plan is loaded, **When** all top-level sections are inspected, **Then** the required sections (Goal, Exit criteria, Docker topology, Pipeline phases) are present.
-2. **Given** the plan content is rendered, **When** section headings are reviewed, **Then** heading hierarchy is logical and consistent.
+1. **Given** the docker `postgres` service is running, **When** I run `uv run pytest`, **Then** the full suite (unit + integration) passes.
+2. **Given** the config contract, **When** `PipelineConfig` is constructed from `config.yaml` and env overrides, **Then** validation rules from `contracts/config-schema.md` are enforced.
+3. **Given** the integration test, **When** migrations are applied to the fixture DB, **Then** the `vector` extension is listed in `pg_extension` and `SELECT 1` succeeds.
 
 ---
 
-### User Story 3 - Plan Navigation (Priority: P3)
+### User Story 3 - Plan Navigation & Docs (Priority: P3)
 
-As an explorer, I want to navigate the Phase 0 plan structure easily so that I can find specific sections without scrolling through the entire document.
+As an explorer, I want the scaffold documented and navigable so that I can find
+the plan, contracts, data model, and quickstart without hunting through the
+repository.
 
-**Why this priority**: P3 — Good navigation improves the user experience when referencing the plan across multiple reading sessions.
+**Why this priority**: P3 — good navigation improves contributor onboarding and
+helps reference the plan across sessions.
 
-**Independent Test**: Can be tested by verifying that section headings allow jump-to navigation and that the table of contents (if present) accurately reflects the document structure.
+**Independent Test**: README + quickstart provide runnable, correct navigation —
+a contributor can start from the root README, follow to `quickstart.md`, and
+complete every validation scenario.
 
 **Acceptance Scenarios**:
-1. **Given** the Phase 0 plan is viewed, **When** the user selects a section heading, **Then** the viewport navigates to the corresponding section.
-2. **Given** a user references the plan across sessions, **When** they search for a specific topic, **Then** the relevant section is quickly locatable via heading structure.
+1. **Given** the repository root, **When** I read the README, **Then** it points to `docs/ARCHITECTURE.md`, `docs/PLAN.md`, and the quickstart.
+2. **Given** the quickstart, **When** I follow its validation scenarios, **Then** each scenario's command and expected outcome from the table match the actual CLI behavior.
+3. **Given** the contracts directory, **When** I read `contracts/index.md`, **Then** it links to the config-schema and CLI contracts.
 
 ---
-
-[Add more user stories as needed, each with an assigned priority]
 
 ### Edge Cases
 
-<!--
-  ACTION REQUIRED: The content in this section represents placeholders.
-  Fill them out with the right edge cases.
--->
-
-- What happens when [boundary condition]?
-- How does system handle [error scenario]?
+- **Database unreachable**: `pipeline db upgrade` / `pipeline healthcheck` against a down Postgres → non-zero exit (`2` connection error, `3` unhealthy) with a clear error to `stderr`, never a hang.
+- **Re-running migrations**: `python -m pipeline db upgrade` twice → idempotent; `CREATE EXTENSION IF NOT EXISTS vector` succeeds without "already exists".
+- **Missing `.env`**: config construction fails validation with a clear message identifying the missing variable — no silent fallback to a real secret.
+- **Container restart / dropped connection**: `pool_pre_ping` recovers from a restarted Postgres without failing the run.
+- **`.env` missing `DATABASE_URL`**: pipeline falls back to documented defaults (as validated by `PipelineConfig`); nothing is hardcoded in business logic (Article II).
 
 ## Requirements *(mandatory)*
 
-<!--
-  ACTION REQUIRED: The content in this section represents placeholders.
-  Fill them out with the right functional requirements.
--->
-
 ### Functional Requirements
 
-- **FR-001**: System MUST display the Phase 0 plan document content when requested
-- **FR-002**: System MUST render the document with proper heading hierarchy for readability
-- **FR-003**: System MUST make the Phase 0 plan accessible at the documented path
-- **FR-004**: System MUST preserve the original content of the Phase 0 plan without modification
-- **FR-005**: System MUST allow searching within the Phase 0 plan content
-
-### Key Entactors *(include if feature involves data)*
-
-*This feature involves document reading, not persistent data entities. Key artifacts are the Phase 0 plan document and its sections.*
+- **FR-001**: System MUST provide a runnable Python project scaffold pinned to Python 3.12 via `uv` (`pyproject.toml`, `requires-python >=3.12`, `uv.lock`)
+- **FR-002**: System MUST expose a validated `PipelineConfig` (Pydantic v2 + `pydantic-settings`) loading `config.yaml` with env overrides (`DATABASE_URL`, `LOG_LEVEL`)
+- **FR-003**: System MUST boot PostgreSQL 16 with the pgvector extension via `docker/docker-compose.yml` (`postgres` + `app` services, named volume `pgdata`)
+- **FR-004**: System MUST apply migrations explicitly via `pipeline db upgrade`; migration `0001` enables the `vector` extension idempotently; never at app startup
+- **FR-005**: System MUST provide `pipeline healthcheck` executing `SELECT 1` through the session factory of `core/db.py`
+- **FR-006**: System MUST confine DB access to the engine/pool/session factory in `pipeline/core/db.py` (never ad-hoc connections)
 
 ### Success Criteria *(mandatory)*
 
-**All success criteria are technology-agnostic and measurable.**
-
-- **SC-001**: Users can view the Phase 0 plan document content without errors
-- **SC-002**: All scaffold goals are visible and correctly formatted in the displayed plan
-- **SC-003**: Exit criteria are readable and match the documented specifications
-- **SC-004**: The Phase 0 plan navigates logically via section headings
+- **SC-001**: `docker compose up -d postgres` starts the `postgres` service with pgvector active (service `healthy`)
+- **SC-002**: `python -m pipeline db upgrade` applies migration 0001 without error, and succeeds again on re-run (idempotent)
+- **SC-003**: `python -m pipeline healthcheck` prints `{"status":"ok",...}` and exits `0`
+- **SC-004**: `uv run pytest` passes the full suite (unit + integration) with the docker `postgres` service running
 
 ## Assumptions
 
-- Users have stable access to the local filesystem where docs/ is hosted
-- The Phase 0 plan document (docs/PLAN.md) exists and is not corrupted
-- Readers have basic text viewing capabilities (no special viewer required)
-- Mobile text viewing is out of scope for v1 — desktop/laptop primary
-- The plan document does not require authentication or authorization to read
+- The authoritative constitution is `docs/CONSTITUTION.md` (Articles I–VII); the Spec Kit template at `.specify/memory/constitution.md` is a reference copy.
+- Users have Docker (`docker compose` plugin) and `uv` (>= 0.4) installed.
+- Postgres runs locally in Docker; no managed/external Postgres in scope for Phase 0.
+- `.env` carries secrets and is gitignored; `config.yaml` carries non-secret defaults.
+- Scope is scaffolding only — no parsing/chunking/embedding/storage logic (Article VII); `indexing/` is deferred to later phases.

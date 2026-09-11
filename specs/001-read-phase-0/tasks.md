@@ -27,11 +27,11 @@ description: "Task list template for feature implementation"
 
 **Purpose**: Project initialization and basic structure
 
-- [ ] T001 Create repository structure per plan.md: `pipeline/`, `pipeline/core/`, `migrations/`, `tests/`, `tests/unit/`, `tests/integration/`, `docker/`
-- [ ] T002 Initialize uv project: create `pyproject.toml` with `requires-python >=3.12` and dependencies (sqlalchemy>=2.0, pydantic>=2, pydantic-settings, alembic, psycopg[binary]>=3, pgvector, typer>=0.12, pyyaml) per research.md R-1/R-2/R-5/R-6
-- [ ] T003 [P] Configure `pytest` + `pytest-xdist` in `pyproject.toml` per research.md R-8 (`[tool.pytest.ini_options]`, testpaths)
-- [ ] T004 [P] Create `config.yaml` with `db` and `logging` sections matching `contracts/config-schema.md`
-- [ ] T005 [P] Create `.env.example` with `DATABASE_URL` template and `LOG_LEVEL` (ensure `.env` stays gitignored)
+- [X] T001 Create repository structure per plan.md: `pipeline/`, `pipeline/core/`, `migrations/`, `tests/`, `tests/unit/`, `tests/integration/`, `docker/`
+- [X] T002 Initialize uv project: create `pyproject.toml` with `requires-python >=3.12` and dependencies (sqlalchemy>=2.0, pydantic>=2, pydantic-settings, alembic, psycopg[binary]>=3, pgvector, typer>=0.12, pyyaml) per research.md R-1/R-2/R-5/R-6
+- [X] T003 [P] Configure `pytest` + `pytest-xdist` in `pyproject.toml` per research.md R-8 (`[tool.pytest.ini_options]`, testpaths)
+- [X] T004 [P] Create `config.yaml` with `db` and `logging` sections matching `contracts/config-schema.md`
+- [X] T005 [P] Create `.env.example` with `DATABASE_URL` template and `LOG_LEVEL` (ensure `.env` stays gitignored)
 
 ---
 
@@ -41,10 +41,10 @@ description: "Task list template for feature implementation"
 
 **⚠️ CRITICAL**: No user story work can begin until this phase is complete
 
-- [ ] T006 Implement `PipelineConfig` (Pydantic v2 + pydantic-settings) in `pipeline/config.py` — loads `config.yaml` + env overrides `DATABASE_URL`/`LOG_LEVEL`, validation rules from `contracts/config-schema.md`
-- [ ] T007 [P] Implement structured JSON logging helper in `pipeline/core/logging.py` (single-line JSON, per research.md R-7 and `docs/ARCHITECTURE.md` §6)
-- [ ] T008 Implement SQLAlchemy engine/pool/session factory in `pipeline/core/db.py` (pool_size=5, max_overflow=10, pool_pre_ping=True, pool_recycle=1800, `postgresql+psycopg` dialect per research.md R-3/R-7)
-- [ ] T009 [P] Create `pipeline/__init__.py` and `pipeline/core/__init__.py` package markers
+- [X] T006 Implement `PipelineConfig` (Pydantic v2 + pydantic-settings) in `pipeline/config.py` — loads `config.yaml` + env overrides `DATABASE_URL`/`LOG_LEVEL`, validation rules from `contracts/config-schema.md`
+- [X] T007 [P] Implement structured JSON logging helper in `pipeline/core/logging.py` (single-line JSON, per research.md R-7 and `docs/ARCHITECTURE.md` §6)
+- [X] T008 Implement SQLAlchemy engine/pool/session factory in `pipeline/core/db.py` (pool_size=5, max_overflow=10, pool_pre_ping=True, pool_recycle=1800, `postgresql+psycopg` dialect per research.md R-3/R-7)
+- [X] T009 [P] Create `pipeline/__init__.py` and `pipeline/core/__init__.py` package markers
 
 **Checkpoint**: Foundation ready — user story implementation can now begin
 
@@ -58,12 +58,12 @@ description: "Task list template for feature implementation"
 
 ### Implementation for User Story 1
 
-- [ ] T010 [P] [US1] Create `docker/docker-compose.yml` with `postgres` service (image `pgvector/pgvector:pg16`, named volume `pgdata`) and `app` service (build `./docker`, depends_on postgres, env_file `.env`) per `docs/ARCHITECTURE.md` §7
-- [ ] T011 [P] [US1] Create `docker/Dockerfile` from `python:3.12-slim` that installs deps via `uv` and runs `python -m pipeline` (research.md R-9)
-- [ ] T012 [US1] Initialize Alembic: `migrations/env.py` + `migrations/script.py.mako` wired to `DATABASE_URL` from `PipelineConfig` (research.md R-10)
-- [ ] T013 [US1] Create migration `migrations/versions/0001_create_vector_extension.py`: `CREATE EXTENSION IF NOT EXISTS vector;` (idempotent, first migration — research.md R-4)
-- [ ] T014 [US1] Implement Typer CLI in `pipeline/cli.py`: `pipeline db upgrade` (Alembic upgrade head via `alembic.command`) and `pipeline healthcheck` (`SELECT 1`), per `contracts/cli.md`
-- [ ] T015 [US1] Add `pipeline/__main__.py` + `[project.scripts] pipeline = "pipeline.cli:app"` entry point so `python -m pipeline` works
+- [X] T010 [P] [US1] Create `docker/docker-compose.yml` with `postgres` service (image `pgvector/pgvector:pg16`, named volume `pgdata`) and `app` service (build `./docker`, depends_on postgres, env_file `.env`) per `docs/ARCHITECTURE.md` §7
+- [X] T011 [P] [US1] Create `docker/Dockerfile` from `python:3.12-slim` that installs deps via `uv` and runs `python -m pipeline` (research.md R-9)
+- [X] T012 [US1] Initialize Alembic: `migrations/env.py` + `migrations/script.py.mako` wired to `DATABASE_URL` from `PipelineConfig` (research.md R-10)
+- [X] T013 [US1] Create migration `migrations/versions/0001_create_vector_extension.py`: `CREATE EXTENSION IF NOT EXISTS vector;` (idempotent, first migration — research.md R-4)
+- [X] T014 [US1] Implement Typer CLI in `pipeline/cli.py`: `pipeline db upgrade` (Alembic upgrade head via `alembic.command`) and `pipeline healthcheck` (`SELECT 1`), per `contracts/cli.md`
+- [X] T015 [US1] Add `pipeline/__main__.py` + `[project.scripts] pipeline = "pipeline.cli:app"` entry point so `python -m pipeline` works
 
 **Checkpoint**: User Story 1 delivers the Phase 0 sprint goal — skeleton is executable end-to-end.
 
@@ -79,13 +79,13 @@ description: "Task list template for feature implementation"
 
 > **NOTE: Write these tests FIRST, ensure they FAIL before implementation**
 
-- [ ] T016 [P] [US2] Create test fixture in `tests/conftest.py` booting the docker `postgres` service and exposing a `DATABASE_URL`-bound session factory
-- [ ] T017 [P] [US2] Unit test `PipelineConfig` validation (required URL, pool bounds, log-level enum, env override precedence) in `tests/unit/test_config.py`
-- [ ] T018 [US2] Unit test engine/session lifecycle (pool created, pre-ping, `SELECT 1` round-trip) in `tests/unit/test_db.py`
+- [X] T016 [P] [US2] Create test fixture in `tests/conftest.py` booting the docker `postgres` service and exposing a `DATABASE_URL`-bound session factory
+- [X] T017 [P] [US2] Unit test `PipelineConfig` validation (required URL, pool bounds, log-level enum, env override precedence) in `tests/unit/test_config.py`
+- [X] T018 [US2] Unit test engine/session lifecycle (pool created, pre-ping, `SELECT 1` round-trip) in `tests/unit/test_db.py`
 
 ### Implementation for User Story 2
 
-- [ ] T019 [US2] Integration test `tests/integration/test_db_upgrade.py`: run `pipeline db upgrade` against the fixture DB, assert the `vector` extension is listed in `pg_extension`, then execute `SELECT 1`
+- [X] T019 [US2] Integration test `tests/integration/test_db_upgrade.py`: run `pipeline db upgrade` against the fixture DB, assert the `vector` extension is listed in `pg_extension`, then execute `SELECT 1`
 
 **Checkpoint**: User Stories 1 AND 2 both work — the scaffold is verified, not just created.
 
@@ -99,9 +99,9 @@ description: "Task list template for feature implementation"
 
 ### Implementation for User Story 3
 
-- [ ] T020 [P] [US3] Write `specs/001-read-phase-0/quickstart.md` validation guide (prereqs, setup, 6 scenarios, test commands) per the plan-phase draft and `contracts/cli.md`
-- [ ] T021 [US3] Update root `README.md` with scaffold structure overview and pointers to `docs/ARCHITECTURE.md`, `docs/PLAN.md`, and the quickstart
-- [ ] T022 [US3] Cross-link `contracts/index.md` to config-schema and cli contracts in `specs/001-read-phase-0/contracts/`
+- [X] T020 [P] [US3] Verify and extend existing `specs/001-read-phase-0/quickstart.md` validation guide — confirm prereqs, setup, 6 scenarios, and test commands match `contracts/cli.md`; add missing entries only if a scenario is absent
+- [X] T021 [US3] Update root `README.md` with scaffold structure overview and pointers to `docs/ARCHITECTURE.md`, `docs/PLAN.md`, and the quickstart
+- [X] T022 [US3] Verify `contracts/index.md` links to config-schema and cli contracts in `specs/001-read-phase-0/contracts/` (links established during plan phase)
 
 **Checkpoint**: All user stories independently functional and the scaffold is fully documented.
 
@@ -111,10 +111,10 @@ description: "Task list template for feature implementation"
 
 **Purpose**: Improvements that affect multiple user stories
 
-- [ ] T023 Add CI workflow (e.g. `.github/workflows/ci.yml`) running: `uv sync` → migrations → tests → Docker image build, on every push (plan.md gate G-4, `docs/PLAN.md` Phase 7 precursor)
-- [ ] T024 [P] Add `README.md` → config contract example copy-correctness check (`config.yaml` matches `contracts/config-schema.md`)
-- [ ] T025 Run `specs/001-read-phase-0/quickstart.md` validation end-to-end and resolve any failures
-- [ ] T026 Verify Constitution compliance: no hardcoded provider values (Article II), explicit migrations only (Article VI), no business logic added (Article VII)
+- [X] T023 Add CI workflow (e.g. `.github/workflows/ci.yml`) running: `uv sync` → migrations → tests → Docker image build, on every push (plan.md gate G-4, `docs/PLAN.md` Phase 7 precursor)
+- [X] T024 [P] Add `README.md` → config contract example copy-correctness check (`config.yaml` matches `contracts/config-schema.md`)
+- [X] T025 Run `specs/001-read-phase-0/quickstart.md` validation end-to-end and resolve any failures
+- [X] T026 Verify Constitution compliance: no hardcoded provider values (Article II), explicit migrations only (Article VI), no business logic added (Article VII)
 
 ---
 

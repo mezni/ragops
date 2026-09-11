@@ -1,0 +1,42 @@
+# RAG indexing pipeline — Phase 0 Docker topology (docs/ARCHITECTURE.md §7).
+#
+# Usage (from repo root):
+#   cd docker && docker compose up -d postgres
+#
+# The `app` service is a Phase 0 placeholder image (research.md R-9); source is
+# injected in Phase 1+.
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: ragops_postgres
+    environment:
+      POSTGRES_USER: ragops
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:-ragops}"
+      POSTGRES_DB: ragops
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ragops -d ragops"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: ragops:0.1.0
+    container_name: ragops_app
+    depends_on:
+      postgres:
+        condition: service_healthy
+    env_file:
+      - ../.env
+    # Phase 1+ injects the source as a volume (research.md R-9).
+    profiles: ["app"]
+
+volumes:
+  pgdata:
+    name: ragops_pgdata

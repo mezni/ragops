@@ -1,0 +1,10 @@
+db:
+  database_url: postgresql+psycopg://ragops:ragops@localhost:5432/ragops
+  pool_size: 5
+  max_overflow: 10
+  pool_pre_ping: true
+  pool_recycle: 1800
+  echo: false
+
+logging:
+  level: INFO

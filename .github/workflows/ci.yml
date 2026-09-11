@@ -1,0 +1,38 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    name: Migrations + tests + Docker build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: uv sync
+
+      - name: Boot Postgres with pgvector (docker-compose)
+        run: docker compose -f docker/docker-compose.yml up -d postgres
+
+      - name: Run migrations
+        run: uv run python -m pipeline db upgrade
+
+      - name: Verify idempotent migration (re-run)
+        run: uv run python -m pipeline db upgrade
+
+      - name: Healthcheck
+        run: uv run python -m pipeline healthcheck
+
+      - name: Run tests
+        run: uv run pytest
+
+      - name: Build app image
+        run: docker compose -f docker/docker-compose.yml build app

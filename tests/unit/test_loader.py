@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from ingestion.stages.document_loader import DocumentLoader
+from ingestion.stages.loader import DocumentLoader
 from tests.conftest import DATA_RAW
 
 FRONTMATTER = (
@@ -45,6 +45,30 @@ def test_run_txt_constructs_document(billing_dir):
     assert doc.metadata["version"] == "1.2"
     assert doc.metadata["content_hash"]
     assert "Some actual policy body text." in doc.content
+
+
+def test_run_markdown_constructs_document(billing_dir):
+    f = billing_dir / "AW-X-002_runbook.md"
+    f.write_text(FRONTMATTER + "\n# Runbook\nSection body content.\n", encoding="utf-8")
+
+    doc = DocumentLoader().run(f)
+
+    assert doc.doc_id == "AW-X-002_runbook"
+    assert doc.metadata["file_type"] == ".md"
+    assert doc.metadata["category"] == "billing"
+    assert "# Runbook" in doc.content
+
+
+def test_run_markdown_raw_assert_parses_via_parsers(billing_dir):
+    # .md/.markdown both map to the MarkdownParser via the registry.
+    from ingestion.parsers import get_parser
+
+    f = billing_dir / "note.markdown"
+    f.write_text(FRONTMATTER + "\nbody\n", encoding="utf-8")
+    assert get_parser(f).extensions == (".md", ".markdown")
+
+    doc = DocumentLoader().run(f)
+    assert doc.metadata["file_type"] == ".markdown"
 
 
 def test_run_pdf_extracts_markdown_tables():

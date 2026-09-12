@@ -20,7 +20,7 @@ dependencies = [
 ]
 
 [project.scripts]
-ragops = "ingestion.pipeline:main"
+ragops = "ingestion.cli:main"
 
 [dependency-groups]
 dev = [

@@ -163,15 +163,14 @@ class Chunker:
             return None
         return text
 
-    @staticmethod
-    def _hard_split(text: str) -> List[str]:
+    def _hard_split(self, text: str) -> List[str]:
         """Fallback: split a single oversized block into fixed-size pieces."""
-        if len(text) <= 500:
+        if len(text) <= self.chunk_size:
             return [text]
 
         pieces: List[str] = []
-        for i in range(0, len(text), 500):
-            pieces.append(text[i:i + 500])
+        for i in range(0, len(text), self.chunk_size):
+            pieces.append(text[i:i + self.chunk_size])
         return pieces
 
 

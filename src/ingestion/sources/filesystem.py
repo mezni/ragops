@@ -29,6 +29,9 @@ class FileSystemSource(DocumentSource):
         self.patterns = patterns or self.DEFAULT_PATTERNS
 
     def discover(self) -> List[SourceReference]:
+        if not self.root_dir.is_dir():
+            raise FileNotFoundError(f"Input directory not found: {self.root_dir}")
+
         references: List[SourceReference] = []
 
         for pattern in self.patterns:

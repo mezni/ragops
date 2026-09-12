@@ -6,7 +6,6 @@ from typing import Any, Dict, List, Optional, Tuple
 from openai import OpenAI
 from dotenv import load_dotenv
 
-from core.logging import configure_logging
 from core.resiliency import embedding_request
 from ingestion.schemas import Document, EmbeddedChunk, TextChunk
 from ingestion.sources import DocumentSource, FileSystemSource
@@ -230,37 +229,12 @@ class RAGIndexingPipeline:
 # PIPELINE EXECUTION FOR AETHER WIRELESS
 # =====================================================================
 
-def main() -> None:
-    """CLI entry point: ingests a target document and runs a sanity search."""
-    # Define relative path to the requested PDF document
-    target_pdf = Path("data/raw/billing/AW-BIL-001_billing_dispute_policy.pdf")
+def main() -> int:
+    """Delegates to the shared CLI entry point (:mod:`ingestion.cli`)."""
+    from ingestion.cli import main as cli_main
 
-    configure_logging()
-
-    # Initialize and execute pipeline
-    pipeline = RAGIndexingPipeline(chunk_size=500, chunk_overlap=50)
-
-    try:
-        results = pipeline.run(target_pdf)
-
-        if results:
-            # Inspect the first chunk extracted from the PDF
-            logger.info("--- First Chunk Extracted from PDF ---")
-            logger.info("Chunk ID: %s", results[0].chunk_id)
-            logger.info("Category: %s", results[0].metadata.get("category"))
-            logger.info("Text snippet: %r...", results[0].text[:200])
-
-        # Sanity check: query the persistent store it was just written to
-        logger.info("--- Sanity Search ---")
-        hits = pipeline.search("how long does a billing dispute investigation take?")
-        ids = hits.get("ids", [[]])[0]
-        logger.info("Top-K hit ids: %s", ids[:3])
-    except FileNotFoundError:
-        logger.error(
-            "[Error] File not found at %s. Please ensure the PDF is placed in the sub-folder.",
-            target_pdf,
-        )
+    return cli_main()
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

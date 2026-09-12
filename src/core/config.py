@@ -161,7 +161,9 @@ def _coerce_value(field_name: str, value: Any, template: Any) -> Any:
     if isinstance(template, tuple):
         if isinstance(value, str):
             value = value.split(",")
-        return tuple(str(item).strip() for item in value)
+        # Do NOT strip newlines: chunking separators like "\n\n" arrive as
+        # literal newlines from TOML and would be erased by a plain strip().
+        return tuple(str(item).strip(" \t\"'") for item in value)
 
     if isinstance(template, int):
         if isinstance(value, int):

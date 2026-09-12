@@ -44,63 +44,12 @@ class EmbeddedChunk(BaseModel):
 
 
 # =====================================================================
-# 2. INDEXING PIPELINE
+# 2. PIPELINE STAGES
 # =====================================================================
 
-class RAGIndexingPipeline:
-    """Class-based pipeline that executes document loading, chunking, and indexing."""
-
-    # Default constants defined directly in the script
-    OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
-    OPENROUTER_EMBEDDING_MODEL = "openai/text-embedding-3-small"
-    CHROMA_PERSIST_DIR = "data/processed/chroma"
-    CHROMA_COLLECTION_NAME = "aether_wireless_docs"
-
-    def __init__(
-        self,
-        chunk_size: int = 500,
-        chunk_overlap: int = 50,
-        api_key: Optional[str] = None,
-        persist_dir: Optional[str] = None,
-        collection_name: Optional[str] = None,
-    ):
-        if chunk_size <= 0:
-            raise ValueError(f"chunk_size must be positive, got {chunk_size}")
-        if chunk_overlap < 0:
-            raise ValueError(f"chunk_overlap must be non-negative, got {chunk_overlap}")
-        if chunk_overlap >= chunk_size:
-            raise ValueError(
-                f"chunk_overlap ({chunk_overlap}) must be < chunk_size ({chunk_size})"
-            )
-        self.chunk_size = chunk_size
-        self.chunk_overlap = chunk_overlap
-
-        # Resolve API key from argument or environment
-        resolved_api_key = api_key or os.getenv("OPENROUTER_API_KEY")
-        if not resolved_api_key:
-            raise ValueError(
-                "OPENROUTER_API_KEY environment variable or api_key parameter is required."
-            )
-
-        # Initialize OpenAI SDK pointed directly to OpenRouter
-        self.client = OpenAI(
-            base_url=self.OPENROUTER_BASE_URL,
-            api_key=resolved_api_key,
-        )
-
-        # Persistent vector store (ChromiaDB on disk — survives process restarts)
-        chroma_dir = Path(persist_dir or self.CHROMA_PERSIST_DIR)
-        chroma_dir.mkdir(parents=True, exist_ok=True)
-
-        self.chroma_client = chromadb.PersistentClient(
-            path=str(chroma_dir),
-            settings=Settings(anonymized_telemetry=False),
-        )
-        self.collection = self.chroma_client.get_or_create_collection(
-            name=collection_name or self.CHROMA_COLLECTION_NAME,
-            metadata={"hnsw:space": "cosine"},
-        )
-        self.vector_store = self.collection  # Compatibility alias
+class IngestionStage:
+    """Loads raw files, strips HTML/markup, and extracts administrative
+    frontmatter into metadata. Output: Document."""
 
     @staticmethod
     def clean_text(raw_text: str) -> str:
@@ -140,8 +89,8 @@ class RAGIndexingPipeline:
 
         return text.strip(), extracted_meta
 
-    def load_file(self, file_path: Path) -> Document:
-        """Reads a .pdf or .txt file from disk, cleans content, and constructs a Document model."""
+    def run(self, file_path: Path) -> Document:
+        """Reads a .pdf or .txt file, cleans content, and constructs a Document."""
         if not file_path.exists():
             raise FileNotFoundError(f"Target document not found: {file_path}")
 
@@ -177,7 +126,23 @@ class RAGIndexingPipeline:
             }
         )
 
-    def chunk_document(self, doc: Document) -> List[TextChunk]:
+
+class ChunkerStage:
+    """Splits a Document into overlapping TextChunks."""
+
+    def __init__(self, chunk_size: int = 500, chunk_overlap: int = 50):
+        if chunk_size <= 0:
+            raise ValueError(f"chunk_size must be positive, got {chunk_size}")
+        if chunk_overlap < 0:
+            raise ValueError(f"chunk_overlap must be non-negative, got {chunk_overlap}")
+        if chunk_overlap >= chunk_size:
+            raise ValueError(
+                f"chunk_overlap ({chunk_overlap}) must be < chunk_size ({chunk_size})"
+            )
+        self.chunk_size = chunk_size
+        self.chunk_overlap = chunk_overlap
+
+    def run(self, doc: Document) -> List[TextChunk]:
         """Splits document text into overlapping chunks and maps back metadata."""
         chunks: List[TextChunk] = []
         text = doc.content
@@ -207,8 +172,18 @@ class RAGIndexingPipeline:
 
         return chunks
 
-    def generate_embeddings(
-        self, chunks: List[TextChunk], batch_size: int = 32
+
+class EmbeddingStage:
+    """Generates real vector embeddings for TextChunks via OpenRouter."""
+
+    def __init__(self, client: OpenAI, model: str):
+        self.client = client
+        self.model = model
+
+    def run(
+        self,
+        chunks: List[TextChunk],
+        batch_size: int = 32,
     ) -> List[EmbeddedChunk]:
         """Generates real vector embeddings in batches using OpenRouter."""
         if not chunks:
@@ -223,7 +198,7 @@ class RAGIndexingPipeline:
 
             # Call OpenRouter embedding endpoint
             response = self.client.embeddings.create(
-                model=self.OPENROUTER_EMBEDDING_MODEL,
+                model=self.model,
                 input=texts
             )
 
@@ -241,7 +216,32 @@ class RAGIndexingPipeline:
 
         return embedded_chunks
 
-    def upsert_to_vector_store(self, embedded_chunks: List[EmbeddedChunk]) -> int:
+
+class VectorStoreStage:
+    """Persistent ChromaDB vector store. Survives process restarts."""
+
+    def __init__(
+        self,
+        persist_dir: str = "data/processed/chroma",
+        collection_name: str = "aether_wireless_docs",
+    ):
+        chroma_dir = Path(persist_dir)
+        chroma_dir.mkdir(parents=True, exist_ok=True)
+
+        self.chroma_client = chromadb.PersistentClient(
+            path=str(chroma_dir),
+            settings=Settings(anonymized_telemetry=False),
+        )
+        self.collection = self.chroma_client.get_or_create_collection(
+            name=collection_name,
+            metadata={"hnsw:space": "cosine"},
+        )
+
+    @property
+    def count(self) -> int:
+        return self.collection.count()
+
+    def upsert(self, embedded_chunks: List[EmbeddedChunk]) -> int:
         """Persists embedded chunks into the ChromaDB vector store on disk."""
         if not embedded_chunks:
             return 0
@@ -256,6 +256,88 @@ class RAGIndexingPipeline:
         )
         return len(embedded_chunks)
 
+    def query(
+        self,
+        query_embedding: List[float],
+        top_k: int = 5,
+    ) -> Dict[str, Any]:
+        """Returns top-K context blocks from the persistent store."""
+        return self.collection.query(
+            query_embeddings=[query_embedding],
+            n_results=top_k,
+            include=["documents", "metadatas", "distances"],
+        )
+
+
+# =====================================================================
+# 3. PIPELINE ORCHESTRATOR
+# =====================================================================
+
+class RAGIndexingPipeline:
+    """Thin orchestrator that wires the ingestion stages together and
+    exposes a single entry point: run(file_path) -> List[EmbeddedChunk]."""
+
+    OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
+    OPENROUTER_EMBEDDING_MODEL = "openai/text-embedding-3-small"
+    CHROMA_PERSIST_DIR = "data/processed/chroma"
+    CHROMA_COLLECTION_NAME = "aether_wireless_docs"
+
+    def __init__(
+        self,
+        chunk_size: int = 500,
+        chunk_overlap: int = 50,
+        api_key: Optional[str] = None,
+        persist_dir: Optional[str] = None,
+        collection_name: Optional[str] = None,
+    ):
+        # Resolve API key from argument or environment
+        resolved_api_key = api_key or os.getenv("OPENROUTER_API_KEY")
+        if not resolved_api_key:
+            raise ValueError(
+                "OPENROUTER_API_KEY environment variable or api_key parameter is required."
+            )
+
+        # Initialize OpenAI SDK pointed directly to OpenRouter
+        self.client = OpenAI(
+            base_url=self.OPENROUTER_BASE_URL,
+            api_key=resolved_api_key,
+        )
+
+        # Compose the pipeline stages
+        self.stages: Dict[str, Any] = {
+            "loader": IngestionStage(),
+            "chunker": ChunkerStage(
+                chunk_size=chunk_size,
+                chunk_overlap=chunk_overlap,
+            ),
+            "embedder": EmbeddingStage(
+                client=self.client,
+                model=self.OPENROUTER_EMBEDDING_MODEL,
+            ),
+            "store": VectorStoreStage(
+                persist_dir=persist_dir or self.CHROMA_PERSIST_DIR,
+                collection_name=collection_name or self.CHROMA_COLLECTION_NAME,
+            ),
+        }
+
+        # Convenience aliases (backward compatibility)
+        self.collection = self.stages["store"].collection
+        self.vector_store = self.collection
+
+    def load_file(self, file_path: Path) -> Document:
+        return self.stages["loader"].run(file_path)
+
+    def chunk_document(self, doc: Document) -> List[TextChunk]:
+        return self.stages["chunker"].run(doc)
+
+    def generate_embeddings(
+        self, chunks: List[TextChunk], batch_size: int = 32
+    ) -> List[EmbeddedChunk]:
+        return self.stages["embedder"].run(chunks, batch_size=batch_size)
+
+    def upsert_to_vector_store(self, embedded_chunks: List[EmbeddedChunk]) -> int:
+        return self.stages["store"].upsert(embedded_chunks)
+
     def search(
         self,
         query_text: str,
@@ -268,19 +350,15 @@ class RAGIndexingPipeline:
             input=[query_text],
         ).data[0].embedding
 
-        return self.collection.query(
-            query_embeddings=[query_embedding],
-            n_results=top_k,
-            include=["documents", "metadatas", "distances"],
-        )
+        return self.stages["store"].query(query_embedding, top_k=top_k)
 
     def run(self, file_path: Path) -> List[EmbeddedChunk]:
         """Executes full ingestion flow for a single target file."""
-        doc = self.load_file(file_path)
-        chunks = self.chunk_document(doc)
-        embedded_chunks = self.generate_embeddings(chunks)
-        count = self.upsert_to_vector_store(embedded_chunks)
-        total = self.collection.count()
+        doc = self.stages["loader"].run(file_path)
+        chunks = self.stages["chunker"].run(doc)
+        embedded_chunks = self.stages["embedder"].run(chunks)
+        count = self.stages["store"].upsert(embedded_chunks)
+        total = self.stages["store"].count
         print(f"[Pipeline Success] Indexed {count} chunks from: {file_path.name}")
         print(f"[Persist] ChromaDB collection '{self.collection.name}' now holds {total} chunks")
         return embedded_chunks
@@ -296,7 +374,7 @@ if __name__ == "__main__":
 
     # Initialize and execute pipeline
     pipeline = RAGIndexingPipeline(chunk_size=500, chunk_overlap=50)
-    
+
     try:
         results = pipeline.run(target_pdf)
 

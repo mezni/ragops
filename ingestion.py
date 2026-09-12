@@ -1,10 +1,14 @@
+import os
 import re
 from pathlib import Path
 from typing import List, Dict, Any, Optional, Tuple
 from pydantic import BaseModel, Field
-import numpy as np
 import pypdf
 from bs4 import BeautifulSoup
+from dotenv import load_dotenv
+from openai import OpenAI
+
+load_dotenv(Path(__file__).resolve().parent / ".env")
 
 
 # =====================================================================
@@ -44,7 +48,16 @@ class EmbeddedChunk(BaseModel):
 class RAGIndexingPipeline:
     """Class-based pipeline that executes document loading, chunking, and indexing."""
 
-    def __init__(self, chunk_size: int = 500, chunk_overlap: int = 50):
+    # Default constants defined directly in the script
+    OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
+    OPENROUTER_EMBEDDING_MODEL = "openai/text-embedding-3-small"
+
+    def __init__(
+        self,
+        chunk_size: int = 500,
+        chunk_overlap: int = 50,
+        api_key: Optional[str] = None
+    ):
         if chunk_size <= 0:
             raise ValueError(f"chunk_size must be positive, got {chunk_size}")
         if chunk_overlap < 0:
@@ -56,6 +69,19 @@ class RAGIndexingPipeline:
         self.chunk_size = chunk_size
         self.chunk_overlap = chunk_overlap
         self.vector_store: Dict[str, EmbeddedChunk] = {}
+
+        # Resolve API key from argument or environment
+        resolved_api_key = api_key or os.getenv("OPENROUTER_API_KEY")
+        if not resolved_api_key:
+            raise ValueError(
+                "OPENROUTER_API_KEY environment variable or api_key parameter is required."
+            )
+
+        # Initialize OpenAI SDK pointed directly to OpenRouter
+        self.client = OpenAI(
+            base_url=self.OPENROUTER_BASE_URL,
+            api_key=resolved_api_key,
+        )
 
     @staticmethod
     def clean_text(raw_text: str) -> str:
@@ -162,21 +188,37 @@ class RAGIndexingPipeline:
 
         return chunks
 
-    def generate_embeddings(self, chunks: List[TextChunk]) -> List[EmbeddedChunk]:
-        """Generates vector embeddings for text chunks (1536-dim dummy vectors for baseline)."""
+    def generate_embeddings(
+        self, chunks: List[TextChunk], batch_size: int = 32
+    ) -> List[EmbeddedChunk]:
+        """Generates real vector embeddings in batches using OpenRouter."""
+        if not chunks:
+            return []
+
         embedded_chunks: List[EmbeddedChunk] = []
 
-        for chunk in chunks:
-            # Mock 1536-dimensional embedding (Replace with OpenAI/SentenceTransformers in Step 2)
-            mock_embedding = np.random.uniform(-1, 1, 1536).tolist()
+        # Process chunks in batches to optimize network efficiency
+        for i in range(0, len(chunks), batch_size):
+            batch = chunks[i : i + batch_size]
+            texts = [c.text for c in batch]
 
-            embedded_chunks.append(EmbeddedChunk(
-                chunk_id=chunk.chunk_id,
-                doc_id=chunk.doc_id,
-                text=chunk.text,
-                embedding=mock_embedding,
-                metadata=chunk.metadata
-            ))
+            # Call OpenRouter embedding endpoint
+            response = self.client.embeddings.create(
+                model=self.OPENROUTER_EMBEDDING_MODEL,
+                input=texts
+            )
+
+            # Map embeddings back to corresponding chunks
+            for chunk, data in zip(batch, response.data):
+                embedded_chunks.append(
+                    EmbeddedChunk(
+                        chunk_id=chunk.chunk_id,
+                        doc_id=chunk.doc_id,
+                        text=chunk.text,
+                        embedding=data.embedding,
+                        metadata=chunk.metadata
+                    )
+                )
 
         return embedded_chunks
 

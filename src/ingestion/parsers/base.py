@@ -17,6 +17,20 @@ class DocumentParser(ABC):
     def extract(self, path: Path) -> str:
         """Return the raw text (tables included) contained in ``path``."""
 
+    @property
+    def engine_label(self) -> str:
+        """Human/audit-readable parser id, e.g. ``PDFParser@pdfplumber-0.11``."""
+        import importlib.metadata
+
+        lib = getattr(self, "library_name", None)
+        if not lib:
+            return type(self).__name__
+        try:
+            version = importlib.metadata.version(lib)
+        except importlib.metadata.PackageNotFoundError:
+            version = "?"
+        return f"{type(self).__name__}@{lib}-{version}"
+
     def page_count(self, path: Path) -> Optional[int]:
         """Return the physical page count for formats that support it.
 

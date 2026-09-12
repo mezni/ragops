@@ -53,6 +53,7 @@ class EmbeddingSettings:
     openrouter_base_url: str = "https://openrouter.ai/api/v1"
     model: str = "openai/text-embedding-3-small"
     batch_size: int = 32
+    tokenizer: str = "cl100k_base"
 
 
 @dataclass(frozen=True)

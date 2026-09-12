@@ -47,7 +47,12 @@ class Chunker:
         self.chunk_overlap = chunk_overlap
         self.separators = separators or self.DEFAULT_SEPARATORS
 
-    def run(self, doc: Document) -> List[TextChunk]:
+    def run(
+        self,
+        doc: Document,
+        job_id: str = "",
+        pipeline_version: str = "",
+    ) -> List[TextChunk]:
         """Splits document text into natural chunks, then builds structured
         :class:`ChunkMetadata` for each slice.
 
@@ -55,8 +60,10 @@ class Chunker:
         department, status, classification, ...) so vector-store pre-filters
         like ``where={"tenant_id": ..., "status": "active"}`` apply to each
         slice. Chunk-local fields (chunk_index, total_chunks, char offsets,
-        content_hash, header_path breadcrumb) are layered on top. A 1-sentence
-        chunk ``summary`` is reserved for an LLM enrichment stage.
+        content_hash, header_path breadcrumb) are layered on top. ``job_id``
+        and ``pipeline_version`` let every chunk trace back to the ingestion
+        run and code revision that produced it. A 1-sentence chunk ``summary``
+        is reserved for an LLM enrichment stage.
         """
         splits = self._split_text(doc.content, self.separators)
         doc_md = doc.metadata
@@ -107,6 +114,13 @@ class Chunker:
                         status=doc_md.status,
                         doc_version=doc_md.doc_version,
                         last_updated=doc_md.updated_at,
+                        # Audit lineage inherited from the doc + the run.
+                        raw_file_hash=doc_md.raw_file_hash,
+                        doc_content_hash=doc_md.content_hash,
+                        parser_engine=doc_md.parser_engine,
+                        ingested_at=doc_md.ingested_at,
+                        ingestion_job_id=job_id,
+                        pipeline_version=pipeline_version,
                     ),
                 )
             )

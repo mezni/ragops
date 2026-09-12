@@ -39,14 +39,20 @@ class Embedder:
 
             # Map embeddings back to corresponding chunks
             for chunk, data in zip(batch, response.data):
+                # Flatten typed metadata to plain dict for Chroma (flat keys),
+                # then stamp the vector-model provenance (audit lineage).
+                meta = chunk.metadata.model_dump()
+                meta["embedding_model"] = self.model
+                meta["embedding_dimensions"] = len(data.embedding)
+                meta["distance_metric"] = get_settings().chroma.hnsw_space
+                meta["tokenizer_name"] = get_settings().embedding.tokenizer
                 embedded_chunks.append(
                     EmbeddedChunk(
                         chunk_id=chunk.chunk_id,
                         doc_id=chunk.doc_id,
                         text=chunk.text,
                         embedding=data.embedding,
-                        # Flatten the typed metadata so Chroma stores flat string keys.
-                        metadata=chunk.metadata.model_dump()
+                        metadata=meta,
                     )
                 )
 

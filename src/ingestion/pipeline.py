@@ -1,5 +1,7 @@
 import logging
 import os
+import uuid
+from importlib.metadata import PackageNotFoundError, version as _pkg_version
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -25,6 +27,17 @@ load_dotenv(_PROJECT_ROOT / ".env")
 logger = logging.getLogger(__name__)
 
 _settings = get_settings()
+
+
+def pipeline_version() -> str:
+    """Semantic version of the ingestion codebase, for audit lineage.
+
+    Falls back to ``"dev"`` when the package hasn't been installed.
+    """
+    try:
+        return f"v{_pkg_version('ragops')}"
+    except PackageNotFoundError:
+        return "dev"
 
 
 class RAGIndexingPipeline:
@@ -129,19 +142,22 @@ class RAGIndexingPipeline:
             top_k=top_k or get_settings().search.top_k,
         )
 
-    def run(self, file_path: Path) -> List[EmbeddedChunk]:
+    def run(self, file_path: Path, job_id: Optional[str] = None) -> List[EmbeddedChunk]:
         """Executes full ingestion flow for a single target file.
 
         Versioned and idempotent: a brand-new document is indexed as
         version 0 with ``is_active=True``; an unchanged document is
         skipped; a modified document is indexed as the next version
         (old chunks stay in the store but are deactivated, so they can
-        be rolled back later).
+        be rolled back later). Every indexed chunk is stamped with the
+        ``job_id`` (generated if absent) and the pipeline version.
         """
+        if job_id is None:
+            job_id = str(uuid.uuid4())
         doc = self.stages["loader"].run(file_path)
-        return self._index_document(doc)
+        return self._index_document(doc, job_id)
 
-    def _index_document(self, doc: Document) -> List[EmbeddedChunk]:
+    def _index_document(self, doc: Document, job_id: str) -> List[EmbeddedChunk]:
         """Shared indexing core: version decision, chunk, embed, persist."""
         store = self.stages["store"]
         registry = self.stages["registry"]

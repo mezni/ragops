@@ -20,6 +20,7 @@ separators = ["\n\n", "\n", ". ", " ", ""]
 openrouter_base_url = "https://openrouter.ai/api/v1"
 model = "openai/text-embedding-3-small"
 batch_size = 32
+tokenizer = "cl100k_base"
 
 [chroma]
 persist_dir = "data/processed/chroma"

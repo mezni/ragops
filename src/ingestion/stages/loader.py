@@ -1,6 +1,6 @@
 import hashlib
 import re
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Tuple
 
@@ -37,6 +37,7 @@ class DocumentLoader:
             "effective_date": r"Effective Date\s*:\s*([\d-]+)",
             "classification": r"Classification\s*:\s*([A-Za-z]+)",
             "tenant_id": r"Tenant ID\s*:\s*([A-Za-z0-9_-]+)",
+            "external_id": r"External ID\s*:\s*([A-Za-z0-9_-]+)",
         }
 
         for key, pattern in patterns.items():
@@ -52,13 +53,16 @@ class DocumentLoader:
         self,
         file_path: Path,
         content_hash: str,
+        parser_engine: str,
+        raw_file_hash: str,
         meta: Dict[str, Any],
     ) -> DocumentMetadata:
         """Merges frontmatter, filesystem facts and centralized defaults
-        (tenancy/taxonomy) into the canonical document metadata record."""
+        (tenancy/taxonomy + audit lineage) into the canonical record."""
         cfg = get_settings().metadata
 
         mtime = datetime.fromtimestamp(file_path.stat().st_mtime).isoformat()
+        ingested_at = datetime.now(timezone.utc).isoformat()
         category = file_path.parent.name
         department = meta.get("department") or category
 
@@ -69,6 +73,12 @@ class DocumentLoader:
             file_type=file_path.suffix.lower(),
             content_hash=content_hash,
             data_source="filesystem",
+            # Audit lineage: how / when this record was produced.
+            raw_file_hash=raw_file_hash,
+            source_system="filesystem",
+            external_id=meta.get("external_id"),
+            parser_engine=parser_engine,
+            ingested_at=ingested_at,
             # Security & governance (centralized defaults).
             tenant_id=meta.get("tenant_id") or cfg.tenant_id,
             access_roles=list(cfg.access_roles),
@@ -105,15 +115,26 @@ class DocumentLoader:
         if not raw_text.strip():
             raise ValueError(f"Extracted content is empty for file: {file_path}")
 
-        # Content digest to power idempotent deduplication downstream
-        content_hash = hashlib.sha256(raw_text.encode("utf-8")).hexdigest()
+        # Raw-file fingerprint + parsed-body fingerprint: the two audit-grade
+        # hashes power idempotent deduplication and scrubbing (GDPR-style).
+        raw_file_hash = hashlib.sha256(file_path.read_bytes()).hexdigest()
 
         # 2. Clean HTML & extract administrative frontmatter
         sanitized_text = clean_text(raw_text)
         body_text, extracted_meta = self.extract_frontmatter(sanitized_text)
 
+        # Parsed-text hash covers the cleaned body (pre-header-strip) so a
+        # change to the admin block alone still bumps the document version.
+        content_hash = hashlib.sha256(sanitized_text.encode("utf-8")).hexdigest()
+
         # 3. Canonical document metadata + physical page count (when known)
-        metadata = self._build_metadata(file_path, content_hash, extracted_meta)
+        metadata = self._build_metadata(
+            file_path,
+            content_hash=content_hash,
+            parser_engine=parser.engine_label,
+            raw_file_hash=raw_file_hash,
+            meta=extracted_meta,
+        )
         total_pages = parser.page_count(file_path)
         if total_pages is not None:
             metadata = metadata.model_copy(

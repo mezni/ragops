@@ -18,6 +18,7 @@ class PDFParser(DocumentParser):
     """
 
     extensions = (".pdf",)
+    library_name = "pdfplumber"
 
     def page_count(self, path: Path) -> Optional[int]:
         """Physical page count, used for the document's ``total_pages``."""

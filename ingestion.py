@@ -1,8 +1,10 @@
+import re
 from pathlib import Path
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Tuple
 from pydantic import BaseModel, Field
 import numpy as np
 import pypdf
+from bs4 import BeautifulSoup
 
 
 # =====================================================================
@@ -55,38 +57,78 @@ class RAGIndexingPipeline:
         self.chunk_overlap = chunk_overlap
         self.vector_store: Dict[str, EmbeddedChunk] = {}
 
+    @staticmethod
+    def clean_text(raw_text: str) -> str:
+        """Removes HTML tags and normalizes whitespace."""
+        # 1. Strip HTML tags like <b>, </b>
+        soup = BeautifulSoup(raw_text, "html.parser")
+        cleaned = soup.get_text(separator=" ")
+
+        # 2. Normalize multiple spaces and extra newlines
+        cleaned = re.sub(r"\n+", "\n", cleaned)
+        cleaned = re.sub(r"[ \t]+", " ", cleaned)
+        return cleaned.strip()
+
+    @staticmethod
+    def extract_frontmatter(text: str) -> Tuple[str, Dict[str, Any]]:
+        """
+        Extracts key-value header metadata (e.g., Version, Last Updated, Status)
+        and strips it from the main body content.
+        """
+        extracted_meta = {}
+
+        # Regex patterns to capture administrative header blocks
+        patterns = {
+            "document_id": r"Document ID\s*:\s*([A-Z0-9-]+)",
+            "version": r"Version\s*:\s*([\d.]+)",
+            "department": r"Department\s*:\s*([A-Za-z]+)",
+            "last_updated": r"Last Updated\s*:\s*([\d-]+)",
+            "status": r"Status\s*:\s*([A-Za-z]+)",
+        }
+
+        for key, pattern in patterns.items():
+            match = re.search(pattern, text, re.IGNORECASE)
+            if match:
+                extracted_meta[key] = match.group(1).strip()
+                # Remove matched key-value string from core text
+                text = re.sub(pattern, "", text, flags=re.IGNORECASE)
+
+        return text.strip(), extracted_meta
+
     def load_file(self, file_path: Path) -> Document:
-        """Reads a .pdf or .txt file from disk and constructs a Document model."""
+        """Reads a .pdf or .txt file from disk, cleans content, and constructs a Document model."""
         if not file_path.exists():
             raise FileNotFoundError(f"Target document not found: {file_path}")
 
-        extracted_text = ""
-        
-        # Parse PDF
+        raw_text = ""
+        # 1. Extract raw text from file
         if file_path.suffix.lower() == ".pdf":
             reader = pypdf.PdfReader(file_path)
             for page in reader.pages:
-                text = page.extract_text()
-                if text:
-                    extracted_text += text + "\n"
-        # Parse Text/Markdown
+                page_text = page.extract_text()
+                if page_text:
+                    raw_text += page_text + "\n"
         elif file_path.suffix.lower() in [".txt", ".md"]:
-            extracted_text = file_path.read_text(encoding="utf-8")
+            raw_text = file_path.read_text(encoding="utf-8")
         else:
             raise ValueError(f"Unsupported file format: {file_path.suffix}")
 
-        if not extracted_text.strip():
+        if not raw_text.strip():
             raise ValueError(f"Extracted content is empty for file: {file_path}")
+
+        # 2. Clean HTML & extract administrative frontmatter
+        sanitized_text = self.clean_text(raw_text)
+        body_text, extracted_meta = self.extract_frontmatter(sanitized_text)
 
         return Document(
             doc_id=file_path.stem,
-            content=extracted_text,
+            content=body_text,
             source=str(file_path),
             metadata={
                 "file_name": file_path.name,
                 "file_type": file_path.suffix.lower(),
-                "file_size_bytes": file_path.stat().st_size,
-                "category": file_path.parent.name  # Captures "billing" from path
+                "category": file_path.parent.name,  # Captures "billing" from path
+                **extracted_meta,  # Saved into Chroma payload rather than chunk text
             }
         )
 

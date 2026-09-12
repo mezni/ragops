@@ -18,7 +18,7 @@
 
 ## Systems Involved
 * **Data Sources:** Local/Shared file directories (`data/raw/` containing `.txt` and `.pdf` files).
-* **Ingestion Engine:** `ingestion.py` (Local loader, recursive chunker, vector database indexing).
+* **Ingestion Engine:** `src/ingestion/` (Local loader, recursive chunker, vector database indexing).
 * **Retrieval Engine:** `retrieval.py` (Dense vector search, context formatter, LLM synthesis).
 * **Vector Store & Embeddings:** Persistent ChromaDB instance powered by OpenAI / Sentence-Transformers embeddings.
 

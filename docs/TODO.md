@@ -15,7 +15,7 @@ Your pipeline currently runs synchronously using standard `for` loops and blocki
 
 Migrate the pipeline to `AsyncOpenAI` and `asyncio`. Concurrent API requests and asynchronous file I/O reduce indexing latency significantly when handling entire document directories.
 
-- **Use Async SDK:** Replace `OpenAI` with `AsyncOpenAI` in `EmbeddingStage` (ingestion.py).
+- **Use Async SDK:** Replace `OpenAI` with `AsyncOpenAI` in `Embedder` (`src/ingestion/stages/embedder.py`).
 - **Batch & Bound Concurrency:** Use `asyncio.Semaphore` to manage parallel API requests without hitting rate limits (HTTP 429).
 - **Process Files Concurrently:** Run embedding tasks in parallel using `asyncio.gather`.
 

@@ -1,7 +1,8 @@
+import hashlib
 import os
 import re
 from pathlib import Path
-from typing import List, Dict, Any, Optional, Tuple
+from typing import List, Dict, Any, Optional, Tuple, Set
 from pydantic import BaseModel, Field
 import pypdf
 from bs4 import BeautifulSoup
@@ -110,6 +111,9 @@ class IngestionStage:
         if not raw_text.strip():
             raise ValueError(f"Extracted content is empty for file: {file_path}")
 
+        # Content digest to power idempotent deduplication downstream
+        content_hash = hashlib.sha256(raw_text.encode("utf-8")).hexdigest()
+
         # 2. Clean HTML & extract administrative frontmatter
         sanitized_text = self.clean_text(raw_text)
         body_text, extracted_meta = self.extract_frontmatter(sanitized_text)
@@ -122,6 +126,7 @@ class IngestionStage:
                 "file_name": file_path.name,
                 "file_type": file_path.suffix.lower(),
                 "category": file_path.parent.name,  # Captures "billing" from path
+                "content_hash": content_hash,
                 **extracted_meta,  # Saved into Chroma payload rather than chunk text
             }
         )
@@ -391,6 +396,30 @@ class VectorStoreStage:
             include=["documents", "metadatas", "distances"],
         )
 
+    def get_document_hashes(self, doc_id: str) -> Set[str]:
+        """Returns the set of content hashes currently stored for a doc_id."""
+        result = self.collection.get(
+            where={"doc_id": doc_id},
+            include=["metadatas"],
+        )
+
+        hashes: Set[str] = set()
+        for metadata in result.get("metadatas", []) or []:
+            content_hash = metadata.get("content_hash")
+            if content_hash:
+                hashes.add(content_hash)
+        return hashes
+
+    def delete_document(self, doc_id: str) -> int:
+        """Deletes every chunk belonging to a doc_id. Returns chunks removed."""
+        result = self.collection.get(where={"doc_id": doc_id})
+        ids = result.get("ids", []) or []
+
+        if ids:
+            self.collection.delete(ids=ids)
+
+        return len(ids)
+
 
 # =====================================================================
 # 3. PIPELINE ORCHESTRATOR
@@ -476,8 +505,25 @@ class RAGIndexingPipeline:
         return self.stages["store"].query(query_embedding, top_k=top_k)
 
     def run(self, file_path: Path) -> List[EmbeddedChunk]:
-        """Executes full ingestion flow for a single target file."""
+        """Executes full ingestion flow for a single target file.
+
+        Idempotent: if the document content hash already exists in the
+        vector store, the document is skipped (no re-chunking or API
+        costs). If the hash differs, stale chunks are purged first.
+        """
         doc = self.stages["loader"].run(file_path)
+        content_hash = doc.metadata.get("content_hash")
+
+        existing_hashes = self.stages["store"].get_document_hashes(doc.doc_id)
+
+        if content_hash in existing_hashes:
+            print(f"[Skipped] {doc.doc_id} unchanged (hash {content_hash[:8]}...) — already indexed.")
+            return []
+
+        if existing_hashes:
+            removed = self.stages["store"].delete_document(doc.doc_id)
+            print(f"[Purge] Removed {removed} stale chunks for '{doc.doc_id}' (content changed).")
+
         chunks = self.stages["chunker"].run(doc)
         embedded_chunks = self.stages["embedder"].run(chunks)
         count = self.stages["store"].upsert(embedded_chunks)
@@ -501,11 +547,12 @@ if __name__ == "__main__":
     try:
         results = pipeline.run(target_pdf)
 
-        # Inspect the first chunk extracted from the PDF
-        print("\n--- First Chunk Extracted from PDF ---")
-        print(f"Chunk ID: {results[0].chunk_id}")
-        print(f"Category: {results[0].metadata.get('category')}")
-        print(f"Text snippet:\n{results[0].text[:200]!r}...")
+        if results:
+            # Inspect the first chunk extracted from the PDF
+            print("\n--- First Chunk Extracted from PDF ---")
+            print(f"Chunk ID: {results[0].chunk_id}")
+            print(f"Category: {results[0].metadata.get('category')}")
+            print(f"Text snippet:\n{results[0].text[:200]!r}...")
 
         # Sanity check: query the persistent store it was just written to
         print("\n--- Sanity Search ---")

@@ -34,6 +34,7 @@ def _chunks(n: int):
                 source_path="docs/d.txt",
                 source="docs/d.txt",
                 content_hash="abc" * 21 + "ab1",
+                chunk_index=i,
                 total_chunks=n,
             ),
         )

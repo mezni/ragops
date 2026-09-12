@@ -100,38 +100,44 @@ def test_each_chunk_has_its_own_content_hash_and_timestamps(sample_doc):
 
 
 def test_chunk_breadcrumb_recovers_section_hierarchy():
+    # Each section is a short heading line + a >chunk_size body, so the
+    # heading alone becomes its own chunk starting exactly at the heading.
     doc = Document(
         doc_id="d",
         content=(
-            "# Billing Policy\n"
-            "Billing disputes are handled by Finance.\n"
-            "## Refunds\n"
-            "Refund requests take ten days.\n"
-            "### Exceptions\n"
-            "Exceptions require manager approval.\n"
+            "# Billing Policy\n" + "Billing disputes are handled by Finance. " * 18 + "\n"
+            "## Refunds\n" + "Refund requests take ten business days. " * 18 + "\n"
+            "### Exceptions\n" + "Exceptions require manager approval. " * 18 + "\n"
         ),
         source="billing/policy.txt",
         metadata=DocumentMetadata(doc_id="d", source_path="billing/policy.txt"),
     )
 
-    chunks = Chunker(chunk_size=200).run(doc)
+    chunks = Chunker().run(doc)
 
-    assert chunks
-    # The leaf chunk (Exceptions) carries the full breadcrumb.
-    leaf = max(chunks, key=lambda c: c.chunk_index)
-    assert "Billing Policy > Refunds > Exceptions" in leaf.metadata.header_path
-    # Earlier chunks capture only the section relevant at their offset.
-    first = min(chunks, key=lambda c: c.chunk_index)
-    assert "Billing Policy" in first.metadata.header_path
+    exceptions = [c for c in chunks if c.text.startswith("### Exceptions")]
+    assert exceptions
+    assert exceptions[0].metadata.header_path == "Billing Policy > Refunds > Exceptions"
+    refunds = [c for c in chunks if c.text.startswith("## Refunds")]
+    assert refunds[0].metadata.header_path == "Billing Policy > Refunds"
+    # Body chunks keep the section they were split from.
+    assert all(
+        c.metadata.header_path.startswith("Billing Policy")
+        for c in chunks
+    )
 
 
 def test_chunk_breadcrumb_supports_numbered_sections():
     doc = Document(
         doc_id="d",
-        content="1. Overview\nSetup steps for the pipeline.\n2. Troubleshooting\nCommon issues and fixes.\n",
+        content=(
+            "1. Overview\n" + "Setup steps for the pipeline. " * 18 + "\n"
+            "2. Troubleshooting\n" + "Common issues and their fixes. " * 18 + "\n"
+        ),
         source="ops.txt",
     )
-    chunks = Chunker(chunk_size=200).run(doc)
+    chunks = Chunker().run(doc)
 
-    second = max(chunks, key=lambda c: c.chunk_index)
-    assert "2 Troubleshooting" in second.metadata.header_path
+    troubleshooting = [c for c in chunks if c.text.startswith("2. Troubleshooting")]
+    assert troubleshooting
+    assert troubleshooting[0].metadata.header_path == "1 Overview > 2 Troubleshooting"

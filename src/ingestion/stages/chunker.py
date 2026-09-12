@@ -60,6 +60,7 @@ class Chunker:
         """
         splits = self._split_text(doc.content, self.separators)
         doc_md = doc.metadata
+        headings = self._scan_headings(doc.content)
 
         chunks: List[TextChunk] = []
         search_from = 0
@@ -93,7 +94,7 @@ class Chunker:
                         page_number=None,  # filled by PDF-aware splitting/enrichment
                         chunk_index=chunk_idx,
                         total_chunks=len(splits),
-                        header_path=self._breadcrumb(doc.content, start),
+                        header_path=self._breadcrumb(headings, start),
                         summary=None,  # reserved for LLM enrichment stage
                         tenant_id=doc_md.tenant_id,
                         access_roles=list(doc_md.access_roles),
@@ -132,21 +133,33 @@ class Chunker:
             return f"{m.group(1)} {m.group(2).strip()}"
         return None
 
-    def _breadcrumb(self, content: str, chunk_start: int) -> str:
-        """Reconstructs the section hierarchy above ``chunk_start``.
-
-        Walks the text before the chunk, collecting heading / numbered
-        section lines (e.g. "# Refunds", "1.2 Exceptions") into a "Parent >
-        Child > Leaf" path, bounded to the most recent headings.
-        """
-        path: List[str] = []
-        for line in content[:chunk_start].splitlines():
+    def _scan_headings(self, content: str) -> List[Tuple[int, str]]:
+        """Returns ``(offset, heading_text)`` pairs for the whole document."""
+        headings: List[Tuple[int, str]] = []
+        offset = 0
+        for line in content.splitlines(keepends=True):
             heading = self._heading(line)
-            if heading is None:
-                continue
-            path.append(heading)
-            if len(path) > self._MAX_BREADCRUMB_DEPTH:
-                path.pop(0)
+            if heading is not None:
+                headings.append((offset, heading))
+            offset += len(line)
+        return headings
+
+    def _breadcrumb(
+        self,
+        headings: List[Tuple[int, str]],
+        chunk_start: int,
+    ) -> str:
+        """Reconstructs the section hierarchy the chunk belongs to.
+
+        A chunk sits under the most recent heading at or before its own
+        start offset (a heading can legitimately begin the chunk itself).
+        The path is bounded to the most recent headings.
+        """
+        path = [
+            text
+            for offset, text in headings
+            if offset <= chunk_start
+        ]
         return " > ".join(path[-self._MAX_BREADCRUMB_DEPTH:])
 
     # ------------------------------------------------------------------

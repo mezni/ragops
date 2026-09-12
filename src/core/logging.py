@@ -1,16 +1,23 @@
 import logging
 
 
+_console_handler_name = "ragops-console"
+
+
 def configure_logging(level: int = logging.INFO) -> None:
     """Idempotent production logging: structured, timestamped stderr logs.
 
-    Attaches a formatted console handler to the root logger while pinning
-    our own package loggers ("ingestion", "core", "utils") to ``level``.
+    Attaches a single named console handler to the root logger while
+    pinning our own package loggers ("ingestion", "core", "utils") to
+    ``level``. Safe to call repeatedly.
     """
     root = logging.getLogger()
 
-    if not any(isinstance(h, logging.StreamHandler) for h in root.handlers):
+    if not any(
+        h.name == _console_handler_name for h in root.handlers
+    ):
         handler = logging.StreamHandler()
+        handler.name = _console_handler_name
         handler.setFormatter(
             logging.Formatter(
                 "[%(asctime)s] %(levelname)s %(name)s: %(message)s",

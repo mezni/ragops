@@ -1,8 +1,10 @@
+import hashlib
 import logging
+import re
 from typing import List, Optional, Tuple
 
 from core.config import get_settings
-from ingestion.schemas import Document, TextChunk
+from ingestion.schemas import ChunkMetadata, Document, TextChunk
 
 logger = logging.getLogger(__name__)
 
@@ -46,19 +48,21 @@ class Chunker:
         self.separators = separators or self.DEFAULT_SEPARATORS
 
     def run(self, doc: Document) -> List[TextChunk]:
-        """Splits document text into natural chunks and maps back metadata.
+        """Splits document text into natural chunks, then builds structured
+        :class:`ChunkMetadata` for each slice.
 
-        Every chunk inherits the full document-level metadata (tenant_id,
+        Every chunk inherits the document-level metadata (tenant_id,
         department, status, classification, ...) so vector-store pre-filters
         like ``where={"tenant_id": ..., "status": "active"}`` apply to each
-        slice. Chunk-local keys (chunk_index, char offsets, total_chunks)
-        are layered on top.
+        slice. Chunk-local fields (chunk_index, total_chunks, char offsets,
+        content_hash, header_path breadcrumb) are layered on top. A 1-sentence
+        chunk ``summary`` is reserved for an LLM enrichment stage.
         """
         splits = self._split_text(doc.content, self.separators)
+        doc_md = doc.metadata
 
         chunks: List[TextChunk] = []
         search_from = 0
-        doc_metadata = doc.metadata.model_dump()
 
         for chunk_idx, chunk_text in enumerate(splits):
             # Locate the chunk inside the original text for offset metadata.
@@ -74,18 +78,76 @@ class Chunker:
                     doc_id=doc.doc_id,
                     text=chunk_text,
                     chunk_index=chunk_idx,
-                    metadata={
-                        **doc_metadata,
-                        "source": doc.source,
-                        "chunk_index": chunk_idx,
-                        "total_chunks": len(splits),
-                        "char_start": start,
-                        "char_end": end,
-                    }
+                    metadata=ChunkMetadata(
+                        doc_id=doc.doc_id,
+                        source_path=doc_md.source_path,
+                        source=doc.source,
+                        file_name=doc_md.file_name,
+                        file_type=doc_md.file_type,
+                        data_source=doc_md.data_source,
+                        content_hash=hashlib.sha256(
+                            chunk_text.encode("utf-8")
+                        ).hexdigest(),
+                        char_start=start,
+                        char_end=end,
+                        page_number=None,  # filled by PDF-aware splitting/enrichment
+                        chunk_index=chunk_idx,
+                        total_chunks=len(splits),
+                        header_path=self._breadcrumb(doc.content, start),
+                        summary=None,  # reserved for LLM enrichment stage
+                        tenant_id=doc_md.tenant_id,
+                        access_roles=list(doc_md.access_roles),
+                        classification=doc_md.classification,
+                        category=doc_md.category,
+                        department=doc_md.department,
+                        doc_type=doc_md.doc_type,
+                        domain=doc_md.domain,
+                        language=doc_md.language,
+                        status=doc_md.status,
+                        doc_version=doc_md.doc_version,
+                        last_updated=doc_md.updated_at,
+                    ),
                 )
             )
 
         return chunks
+
+    # ------------------------------------------------------------------
+    # Section hierarchy (breadcrumb) reconstruction
+    # ------------------------------------------------------------------
+
+    _HEADING_RE = re.compile(r"^(#{1,6})\s+(.+)$")
+    _SECTION_RE = re.compile(r"^(\d+(?:\.\d+){0,3})[\.\)]?\s+(.+)$")
+    _MAX_BREADCRUMB_DEPTH = 4
+
+    @classmethod
+    def _heading(cls, line: str) -> Optional[str]:
+        """Normalizes one line into a breadcrumb segment, or None."""
+        s = line.strip()
+        m = cls._HEADING_RE.match(s)
+        if m:
+            return m.group(2).strip()
+        m = cls._SECTION_RE.match(s)
+        if m:
+            return f"{m.group(1)} {m.group(2).strip()}"
+        return None
+
+    def _breadcrumb(self, content: str, chunk_start: int) -> str:
+        """Reconstructs the section hierarchy above ``chunk_start``.
+
+        Walks the text before the chunk, collecting heading / numbered
+        section lines (e.g. "# Refunds", "1.2 Exceptions") into a "Parent >
+        Child > Leaf" path, bounded to the most recent headings.
+        """
+        path: List[str] = []
+        for line in content[:chunk_start].splitlines():
+            heading = self._heading(line)
+            if heading is None:
+                continue
+            path.append(heading)
+            if len(path) > self._MAX_BREADCRUMB_DEPTH:
+                path.pop(0)
+        return " > ".join(path[-self._MAX_BREADCRUMB_DEPTH:])
 
     # ------------------------------------------------------------------
     # Recursive splitting primitives

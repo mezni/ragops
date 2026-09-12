@@ -109,8 +109,9 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         first = results[0]
         logger.info("--- First Chunk Extracted ---")
         logger.info("Chunk ID: %s", first.chunk_id)
-        logger.info("Category: %s", first.metadata.get("category"))
-        logger.info("Source: %s", first.metadata.get("data_source"))
+        logger.info("Category: %s", first.metadata.category)
+        logger.info("Source: %s", first.metadata.data_source)
+        logger.info("Section: %s", first.metadata.header_path or "(none)")
         logger.info("Text snippet: %r...", first.text[:settings.logging.snippet_length])
     elif failed:
         logger.error(

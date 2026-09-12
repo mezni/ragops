@@ -1,6 +1,6 @@
 from types import SimpleNamespace
 
-from ingestion.schemas import EmbeddedChunk, TextChunk
+from ingestion.schemas import ChunkMetadata, EmbeddedChunk, TextChunk
 from ingestion.stages.embedder import Embedder
 
 
@@ -29,7 +29,13 @@ def _chunks(n: int):
             doc_id="d",
             text=f"text {i}",
             chunk_index=i,
-            metadata={"k": i},
+            metadata=ChunkMetadata(
+                doc_id="d",
+                source_path="docs/d.txt",
+                source="docs/d.txt",
+                content_hash="abc" * 21 + "ab1",
+                total_chunks=n,
+            ),
         )
         for i in range(n)
     ]
@@ -47,8 +53,9 @@ def test_embedder_batches_and_maps_results():
 
     assert len(embedded) == 5
     assert all(isinstance(c, EmbeddedChunk) for c in embedded)
-    assert embedded[0].metadata == {"k": 0}
-    assert embedded[4].metadata == {"k": 4}
+    # ChunkMetadata is flattened to a plain dict for Chroma.
+    assert embedded[0].metadata["doc_id"] == "d"
+    assert embedded[4].metadata["chunk_index"] == 4
     assert embedded[0].embedding == [1.0, 1.0, 1.0, 1.0]
     assert client.embeddings.calls == [
         ("model-x", ["text 0", "text 1"]),

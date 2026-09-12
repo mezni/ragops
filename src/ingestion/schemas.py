@@ -98,14 +98,89 @@ class SourceReference(BaseModel):
     )
 
 
+class ChunkMetadata(BaseModel):
+    """Structured chunk-level metadata — the compact view a retrieved chunk
+    carries into generation, filtering, access control and the UI.
+
+    Mirrors :class:`DocumentMetadata`'s grouping but is chunk-scoped. Four
+    concerns:
+
+    * Lineage & provenance   (doc_id, source_path, data_source, file_name,
+                              file_type, content_hash, char_start/char_end,
+                              page_number)
+    * Context & hierarchy    (chunk_index, total_chunks, header_path, summary)
+    * Filtering & governance (tenant_id, access_roles, classification, category,
+                              department, doc_type, domain, language, status,
+                              doc_version)
+    * Versioning payload     (version, is_active, last_updated)
+
+    ``content_hash`` is the SHA-256 of THIS chunk's text (idempotent chunk
+    updates / deleted-modified-chunk tracking). ``version`` is the pipeline-
+    owned indexed/rollback tag (int) — the authored revision lives at
+    ``doc_version``.
+    """
+
+    # --- 1. Lineage & char-level provenance -----------------------------
+    doc_id: str = Field(..., description="Root document identifier")
+    source_path: str = Field(..., description="Original file path or URL")
+    source: str = Field(..., description="Locator for re-loading the document")
+    file_name: str = Field(default="", example="AW-BIL-001.pdf")
+    file_type: str = Field(default="", example=".pdf")
+    data_source: str = Field(default="filesystem", description="Source modality")
+    content_hash: str = Field(
+        ..., description="SHA-256 of this chunk's text, for idempotency"
+    )
+    char_start: int = Field(default=0, ge=0, description="Offset in raw document")
+    char_end: int = Field(default=0, ge=0, description="Offset in raw document")
+    page_number: Optional[int] = Field(default=None, ge=1)
+
+    # --- 2. Context & hierarchy (parent/child + injection) ---------------
+    chunk_index: int = Field(..., ge=0, description="Order within the document")
+    total_chunks: int = Field(..., ge=1)
+    header_path: str = Field(
+        default="",
+        description='Section breadcrumb, e.g. "Billing Policy > Refunds"',
+    )
+    summary: Optional[str] = Field(
+        default=None, description="1-sentence LLM summary, reserved for enrichment"
+    )
+
+    # --- 3. Filtering & governance ---------------------------------------
+    tenant_id: str = Field(default="default_tenant", description="Customer boundary")
+    access_roles: List[str] = Field(
+        default_factory=lambda: ["public"],
+        description="Permitted roles, e.g. [\"billing_admin\", \"support_tier_2\"]",
+    )
+    classification: str = Field(
+        default="internal",
+        description="public | internal | confidential | restricted",
+    )
+    category: str = Field(default="", description="High-level filter, e.g. 'billing'")
+    department: str = Field(default="")
+    doc_type: str = Field(default="document")
+    domain: Optional[str] = Field(default=None)
+    language: str = Field(default="en", description="ISO language code")
+    status: str = Field(default="active", description="draft | active | archived | deprecated")
+    doc_version: str = Field(default="1.0", description="Authored revision tag")
+
+    # --- 4. Versioning payload (pipeline-owned tags) ---------------------
+    version: int = Field(default=0, description="Indexed/rollback version")
+    is_active: bool = Field(default=True)
+    last_updated: str = Field(
+        default_factory=lambda: datetime.now(timezone.utc).isoformat(),
+        description="ISO timestamp for the document's last change",
+    )
+
+
 class TextChunk(BaseModel):
     """Processed text chunk ready for embedding."""
     chunk_id: str = Field(..., description="Unique identifier (doc_id_chunk_N)")
     doc_id: str = Field(..., description="Parent document ID")
     text: str = Field(..., min_length=1, description="Chunked text slice")
     chunk_index: int = Field(..., ge=0, description="Sequential index")
-    metadata: Dict[str, Any] = Field(
-        default_factory=dict, description="Doc metadata inherited + chunk offsets"
+    metadata: ChunkMetadata = Field(
+        default_factory=ChunkMetadata,
+        description="Structured doc metadata + chunk offsets give context & filters",
     )
 
 

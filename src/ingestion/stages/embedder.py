@@ -45,7 +45,8 @@ class Embedder:
                         doc_id=chunk.doc_id,
                         text=chunk.text,
                         embedding=data.embedding,
-                        metadata=chunk.metadata
+                        # Flatten the typed metadata so Chroma stores flat string keys.
+                        metadata=chunk.metadata.model_dump()
                     )
                 )
 

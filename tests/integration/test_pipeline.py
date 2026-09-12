@@ -118,7 +118,7 @@ def test_new_doc_starts_at_version_zero(pipeline, tmp_path):
 
     assert result
     assert all("_v0_chunk_" in c.chunk_id for c in result)
-    assert all(c.metadata.get("version") == 0 for c in result)
+    assert all(c.metadata.version == 0 for c in result)
     record = pipeline.registry.get("AW-X-001_rules")
     assert record["active_version"] == 0
     assert record["is_active"] is True

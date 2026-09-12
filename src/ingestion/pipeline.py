@@ -196,8 +196,8 @@ class RAGIndexingPipeline:
         # one: rollback needs every version's content preserved in the store.
         for idx, chunk in enumerate(chunks):
             chunk.chunk_id = f"{doc.doc_id}_v{version}_chunk_{idx}"
-            chunk.metadata["version"] = version
-            chunk.metadata["is_active"] = True
+            chunk.metadata.version = version
+            chunk.metadata.is_active = True
         embedded_chunks = self.stages["embedder"].run(chunks)
         count = store.upsert(embedded_chunks, version=version, is_active=True)
         registry.register_version(

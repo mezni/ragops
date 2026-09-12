@@ -34,9 +34,6 @@ class EmbeddedChunk(BaseModel):
     embedding: List[float] = Field(..., description="Dense vector embedding")
     metadata: Dict[str, Any]
 
-    class Config:
-        arbitrary_types_allowed = True
-
 
 # =====================================================================
 # 2. INDEXING PIPELINE
@@ -46,6 +43,14 @@ class RAGIndexingPipeline:
     """Class-based pipeline that executes document loading, chunking, and indexing."""
 
     def __init__(self, chunk_size: int = 500, chunk_overlap: int = 50):
+        if chunk_size <= 0:
+            raise ValueError(f"chunk_size must be positive, got {chunk_size}")
+        if chunk_overlap < 0:
+            raise ValueError(f"chunk_overlap must be non-negative, got {chunk_overlap}")
+        if chunk_overlap >= chunk_size:
+            raise ValueError(
+                f"chunk_overlap ({chunk_overlap}) must be < chunk_size ({chunk_size})"
+            )
         self.chunk_size = chunk_size
         self.chunk_overlap = chunk_overlap
         self.vector_store: Dict[str, EmbeddedChunk] = {}

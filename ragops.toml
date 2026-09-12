@@ -34,6 +34,13 @@ sanity_query = "how long does a billing dispute investigation take?"
 [sources]
 patterns = ["*.pdf", "*.txt", "*.md"]
 
+[metadata]
+tenant_id = "default_tenant"
+access_roles = ["public"]
+classification = "internal"
+doc_type = "document"
+language = "en"
+
 [resiliency]
 max_attempts = 5
 wait_initial = 1.0

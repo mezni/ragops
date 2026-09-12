@@ -1,6 +1,6 @@
 import logging
 from pathlib import Path
-from typing import List
+from typing import List, Optional
 
 import pdfplumber
 
@@ -18,6 +18,14 @@ class PDFParser(DocumentParser):
     """
 
     extensions = (".pdf",)
+
+    def page_count(self, path: Path) -> Optional[int]:
+        """Physical page count, used for the document's ``total_pages``."""
+        try:
+            with pdfplumber.open(path) as pdf:
+                return len(pdf.pages)
+        except Exception:
+            return None
 
     def extract(self, path: Path) -> str:
         page_parts: List[str] = []

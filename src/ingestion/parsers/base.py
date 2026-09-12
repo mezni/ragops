@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Tuple
+from typing import Optional, Tuple
 
 
 class DocumentParser(ABC):
@@ -16,3 +16,11 @@ class DocumentParser(ABC):
     @abstractmethod
     def extract(self, path: Path) -> str:
         """Return the raw text (tables included) contained in ``path``."""
+
+    def page_count(self, path: Path) -> Optional[int]:
+        """Return the physical page count for formats that support it.
+
+        Defaults to None (unknown). PDF parsers override this to enable
+        the ``total_pages`` document-metadata field.
+        """
+        return None

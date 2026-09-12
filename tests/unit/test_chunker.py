@@ -1,6 +1,6 @@
 import pytest
 
-from ingestion.schemas import Document
+from ingestion.schemas import Document, DocumentMetadata
 from ingestion.stages.chunker import Chunker
 
 
@@ -55,3 +55,35 @@ def test_chunker_validation_errors():
         Chunker(chunk_overlap=-1)
     with pytest.raises(ValueError, match="must be < chunk_size"):
         Chunker(chunk_size=100, chunk_overlap=100)
+
+
+def test_chunks_inherit_document_metadata(sample_doc):
+    doc = sample_doc.model_copy(
+        update={
+            "metadata": DocumentMetadata(
+                doc_id="doc1",
+                source_path="billing/doc1.txt",
+                tenant_id="acme-01",
+                access_roles=["billing_admin"],
+                classification="confidential",
+                department="billing",
+                doc_type="policy",
+                status="active",
+            )
+        }
+    )
+    chunks = Chunker(chunk_size=500).run(doc)
+
+    assert all(c.metadata["tenant_id"] == "acme-01" for c in chunks)
+    assert all(c.metadata["classification"] == "confidential" for c in chunks)
+    assert all(c.metadata["department"] == "billing" for c in chunks)
+    assert all(c.metadata["doc_type"] == "policy" for c in chunks)
+    assert all(c.metadata["status"] == "active" for c in chunks)
+
+
+def test_chunks_carry_total_chunks_and_index(sample_doc):
+    chunks = Chunker(chunk_size=500, chunk_overlap=50).run(sample_doc)
+
+    assert len(chunks) > 1
+    assert {c.metadata["total_chunks"] for c in chunks} == {len(chunks)}
+    assert [c.metadata["chunk_index"] for c in chunks] == list(range(len(chunks)))

@@ -24,6 +24,12 @@ def test_defaults_match_config_file():
     assert cfg.resiliency.wait_jitter == 2.0
     assert cfg.ocr.dpi == 200
     assert cfg.sources.patterns == ("*.pdf", "*.txt", "*.md")
+    assert cfg.metadata.tenant_id == "default_tenant"
+    assert cfg.metadata.access_roles == ("public",)
+    assert cfg.metadata.classification == "internal"
+    assert cfg.metadata.doc_type == "document"
+    assert cfg.metadata.language == "en"
+    assert cfg.metadata.domain is None
     assert cfg.logging.level == logging.INFO
     assert cfg.logging.root_level == logging.WARNING
 
@@ -37,6 +43,9 @@ def test_env_override_precedence(monkeypatch):
     monkeypatch.setenv("RAGOPS_CHUNKING_CHUNK_SIZE", "750")
     monkeypatch.setenv("RAGOPS_CHROMA_ANONYMIZED_TELEMETRY", "true")
     monkeypatch.setenv("RAGOPS_SOURCES_PATTERNS", "*.pdf,*.docx")
+    monkeypatch.setenv("RAGOPS_METADATA_TENANT_ID", "acme-01")
+    monkeypatch.setenv("RAGOPS_METADATA_ACCESS_ROLES", "billing_admin,support_tier_2")
+    monkeypatch.setenv("RAGOPS_METADATA_CLASSIFICATION", "confidential")
     monkeypatch.setenv("RAGOPS_LOGGING_LEVEL", "DEBUG")
 
     try:
@@ -44,6 +53,9 @@ def test_env_override_precedence(monkeypatch):
         assert cfg.chunking.chunk_size == 750
         assert cfg.chroma.anonymized_telemetry is True
         assert cfg.sources.patterns == ("*.pdf", "*.docx")
+        assert cfg.metadata.tenant_id == "acme-01"
+        assert cfg.metadata.access_roles == ("billing_admin", "support_tier_2")
+        assert cfg.metadata.classification == "confidential"
         assert cfg.logging.level == logging.DEBUG
     finally:
         _restore()

@@ -46,11 +46,19 @@ class Chunker:
         self.separators = separators or self.DEFAULT_SEPARATORS
 
     def run(self, doc: Document) -> List[TextChunk]:
-        """Splits document text into natural chunks and maps back metadata."""
+        """Splits document text into natural chunks and maps back metadata.
+
+        Every chunk inherits the full document-level metadata (tenant_id,
+        department, status, classification, ...) so vector-store pre-filters
+        like ``where={"tenant_id": ..., "status": "active"}`` apply to each
+        slice. Chunk-local keys (chunk_index, char offsets, total_chunks)
+        are layered on top.
+        """
         splits = self._split_text(doc.content, self.separators)
 
         chunks: List[TextChunk] = []
         search_from = 0
+        doc_metadata = doc.metadata.model_dump()
 
         for chunk_idx, chunk_text in enumerate(splits):
             # Locate the chunk inside the original text for offset metadata.
@@ -67,8 +75,10 @@ class Chunker:
                     text=chunk_text,
                     chunk_index=chunk_idx,
                     metadata={
-                        **doc.metadata,
+                        **doc_metadata,
                         "source": doc.source,
+                        "chunk_index": chunk_idx,
+                        "total_chunks": len(splits),
                         "char_start": start,
                         "char_end": end,
                     }

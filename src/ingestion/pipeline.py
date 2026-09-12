@@ -145,8 +145,8 @@ class RAGIndexingPipeline:
         """Shared indexing core: version decision, chunk, embed, persist."""
         store = self.stages["store"]
         registry = self.stages["registry"]
-        content_hash = doc.metadata.get("content_hash")
-        data_source = doc.metadata.get("data_source", doc.data_source)
+        content_hash = doc.metadata.content_hash
+        data_source = doc.metadata.data_source
 
         record = registry.get(doc.doc_id)
 

@@ -63,3 +63,18 @@ def test_pdf_parser_renders_tables_and_text():
     assert raw
     assert "| --- |" in raw  # Markdown table grid
     assert "Billing Dispute Policy" in raw
+
+
+def test_pdf_parser_reports_page_count():
+    pdf = DATA_RAW / "billing" / "AW-BIL-001_billing_dispute_policy.pdf"
+    assert PDFParser().page_count(pdf) == 19
+
+
+def test_text_parser_page_count_is_none(tmp_path):
+    f = tmp_path / "note.txt"
+    f.write_text("hello\n", encoding="utf-8")
+    assert TextParser().page_count(f) is None
+
+
+def test_pdf_parser_page_count_none_for_missing_file(tmp_path):
+    assert PDFParser().page_count(tmp_path / "missing.pdf") is None

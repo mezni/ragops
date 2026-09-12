@@ -75,6 +75,22 @@ class SourcesSettings:
 
 
 @dataclass(frozen=True)
+class MetadataSettings:
+    """Tenancy / taxonomy defaults used to populate document metadata.
+
+    Applied to every ingested document unless the file itself declares a
+    value (e.g. frontmatter). ``access_roles`` in TOML is a list.
+    """
+
+    tenant_id: str = "default_tenant"
+    access_roles: Tuple[str, ...] = ("public",)
+    classification: str = "internal"
+    doc_type: str = "document"
+    domain: Optional[str] = None
+    language: str = "en"
+
+
+@dataclass(frozen=True)
 class ResiliencySettings:
     max_attempts: int = 5
     wait_initial: float = 1.0
@@ -110,6 +126,7 @@ class Settings:
     chroma: ChromaSettings = field(default_factory=ChromaSettings)
     search: SearchSettings = field(default_factory=SearchSettings)
     sources: SourcesSettings = field(default_factory=SourcesSettings)
+    metadata: MetadataSettings = field(default_factory=MetadataSettings)
     resiliency: ResiliencySettings = field(default_factory=ResiliencySettings)
     ocr: OcrSettings = field(default_factory=OcrSettings)
     logging: LoggingSettings = field(default_factory=LoggingSettings)
@@ -123,6 +140,7 @@ _SECTIONS: Tuple[Tuple[str, Type[Any]], ...] = (
     ("chroma", ChromaSettings),
     ("search", SearchSettings),
     ("sources", SourcesSettings),
+    ("metadata", MetadataSettings),
     ("resiliency", ResiliencySettings),
     ("ocr", OcrSettings),
     ("logging", LoggingSettings),

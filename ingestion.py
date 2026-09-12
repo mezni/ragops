@@ -1,16 +1,68 @@
 import hashlib
+import logging
 import os
 import re
 from pathlib import Path
 from typing import List, Dict, Any, Optional, Tuple, Set
 from pydantic import BaseModel, Field
 from bs4 import BeautifulSoup
+from tenacity import (
+    before_sleep_log,
+    retry,
+    retry_if_exception_type,
+    stop_after_attempt,
+    wait_exponential_jitter,
+)
 import chromadb
 from chromadb.config import Settings
 from dotenv import load_dotenv
+import openai
 from openai import OpenAI
 
 load_dotenv(Path(__file__).resolve().parent / ".env")
+
+
+# =====================================================================
+# LOGGING & RESILIENCY
+# =====================================================================
+
+logger = logging.getLogger("ragops.ingestion")
+
+
+def configure_logging(level: int = logging.INFO) -> None:
+    """Idempotent production logging: structured, timestamped stderr logs."""
+    app_logger = logging.getLogger("ragops")
+    if not app_logger.handlers:
+        handler = logging.StreamHandler()
+        handler.setFormatter(
+            logging.Formatter(
+                "[%(asctime)s] %(levelname)s %(name)s: %(message)s",
+                datefmt="%Y-%m-%d %H:%M:%S",
+            )
+        )
+        app_logger.addHandler(handler)
+    app_logger.setLevel(level)
+
+
+# OpenRouter calls that can transiently fail: rate limits (429), socket
+# drops, read timeouts. Any other exception is raised immediately.
+_RETRYABLE_ERRORS = (
+    openai.RateLimitError,
+    openai.APITimeoutError,
+    openai.APIConnectionError,
+)
+
+
+@retry(
+    reraise=True,
+    stop=stop_after_attempt(5),
+    wait=wait_exponential_jitter(initial=1, max=30, exp_base=2, jitter=2),
+    retry=retry_if_exception_type(_RETRYABLE_ERRORS),
+    before_sleep=before_sleep_log(logger, logging.WARNING),
+)
+def _embedding_request(client: OpenAI, model: str, texts: List[str]):
+    """One embedding API call with exponential backoff + jitter retries."""
+    return client.embeddings.create(model=model, input=texts)
 
 
 # =====================================================================
@@ -411,11 +463,8 @@ class EmbeddingStage:
             batch = chunks[i : i + batch_size]
             texts = [c.text for c in batch]
 
-            # Call OpenRouter embedding endpoint
-            response = self.client.embeddings.create(
-                model=self.model,
-                input=texts
-            )
+            # Call OpenRouter embedding endpoint (retries on 429/timeouts)
+            response = _embedding_request(self.client, self.model, texts)
 
             # Map embeddings back to corresponding chunks
             for chunk, data in zip(batch, response.data):
@@ -584,9 +633,10 @@ class RAGIndexingPipeline:
     ) -> Dict[str, Any]:
         """Embeds a natural-language query and returns top-K context blocks
         from the persistent ChromaDB store."""
-        query_embedding = self.client.embeddings.create(
-            model=self.OPENROUTER_EMBEDDING_MODEL,
-            input=[query_text],
+        query_embedding = _embedding_request(
+            self.client,
+            self.OPENROUTER_EMBEDDING_MODEL,
+            [query_text],
         ).data[0].embedding
 
         return self.stages["store"].query(query_embedding, top_k=top_k)
@@ -604,20 +654,88 @@ class RAGIndexingPipeline:
         existing_hashes = self.stages["store"].get_document_hashes(doc.doc_id)
 
         if content_hash in existing_hashes:
-            print(f"[Skipped] {doc.doc_id} unchanged (hash {content_hash[:8]}...) — already indexed.")
+            logger.info(
+                "[Skipped] %s unchanged (hash %s...) — already indexed.",
+                doc.doc_id,
+                content_hash[:8],
+            )
             return []
 
         if existing_hashes:
             removed = self.stages["store"].delete_document(doc.doc_id)
-            print(f"[Purge] Removed {removed} stale chunks for '{doc.doc_id}' (content changed).")
+            logger.info(
+                "[Purge] Removed %d stale chunks for '%s' (content changed).",
+                removed,
+                doc.doc_id,
+            )
 
         chunks = self.stages["chunker"].run(doc)
         embedded_chunks = self.stages["embedder"].run(chunks)
         count = self.stages["store"].upsert(embedded_chunks)
         total = self.stages["store"].count
-        print(f"[Pipeline Success] Indexed {count} chunks from: {file_path.name}")
-        print(f"[Persist] ChromaDB collection '{self.collection.name}' now holds {total} chunks")
+        logger.info(
+            "[Pipeline Success] Indexed %d chunks from: %s",
+            count,
+            file_path.name,
+        )
+        logger.info(
+            "[Persist] ChromaDB collection '%s' now holds %d chunks",
+            self.collection.name,
+            total,
+        )
         return embedded_chunks
+
+    def run_batch(
+        self,
+        file_paths: List[Path],
+    ) -> Tuple[List[EmbeddedChunk], List[str]]:
+        """Ingests many documents with per-file error isolation.
+
+        A failure on one file is logged with its traceback and skipped so
+        the remaining documents still get processed. Returns (indexed
+        chunks, list of failed file paths).
+        """
+        all_results: List[EmbeddedChunk] = []
+        failed: List[str] = []
+
+        for file_path in file_paths:
+            try:
+                all_results.extend(self.run(Path(file_path)))
+            except Exception:
+                logger.exception(
+                    "[Skipped] %s failed and was isolated from the batch.",
+                    file_path,
+                )
+                failed.append(str(file_path))
+
+        logger.info(
+            "[Batch Complete] %d files ok, %d failed, %d chunks indexed.",
+            len(file_paths) - len(failed),
+            len(failed),
+            len(all_results),
+        )
+        return all_results, failed
+
+    def run_directory(
+        self,
+        directory: Path,
+        patterns: Tuple[str, ...] = ("*.pdf", "*.txt", "*.md"),
+    ) -> Tuple[List[EmbeddedChunk], List[str]]:
+        """Convenience wrapper: collects matching files under ``directory``
+        (recursive) and ingests them via :meth:`run_batch`."""
+        files = sorted(
+            fp
+            for pattern in patterns
+            for fp in Path(directory).rglob(pattern)
+        )
+        if not files:
+            logger.warning(
+                "[Batch] No files matched %s under %s",
+                patterns,
+                directory,
+            )
+            return [], []
+        return self.run_batch(files)
 
 
 # =====================================================================
@@ -628,6 +746,8 @@ if __name__ == "__main__":
     # Define relative path to the requested PDF document
     target_pdf = Path("data/raw/billing/AW-BIL-001_billing_dispute_policy.pdf")
 
+    configure_logging()
+
     # Initialize and execute pipeline
     pipeline = RAGIndexingPipeline(chunk_size=500, chunk_overlap=50)
 
@@ -636,15 +756,18 @@ if __name__ == "__main__":
 
         if results:
             # Inspect the first chunk extracted from the PDF
-            print("\n--- First Chunk Extracted from PDF ---")
-            print(f"Chunk ID: {results[0].chunk_id}")
-            print(f"Category: {results[0].metadata.get('category')}")
-            print(f"Text snippet:\n{results[0].text[:200]!r}...")
+            logger.info("--- First Chunk Extracted from PDF ---")
+            logger.info("Chunk ID: %s", results[0].chunk_id)
+            logger.info("Category: %s", results[0].metadata.get("category"))
+            logger.info("Text snippet: %r...", results[0].text[:200])
 
         # Sanity check: query the persistent store it was just written to
-        print("\n--- Sanity Search ---")
+        logger.info("--- Sanity Search ---")
         hits = pipeline.search("how long does a billing dispute investigation take?")
         ids = hits.get("ids", [[]])[0]
-        print(f"Top-K hit ids: {ids[:3]}")
+        logger.info("Top-K hit ids: %s", ids[:3])
     except FileNotFoundError:
-        print(f"[Error] File not found at {target_pdf}. Please ensure the PDF is placed in the sub-folder.")
+        logger.error(
+            "[Error] File not found at %s. Please ensure the PDF is placed in the sub-folder.",
+            target_pdf,
+        )

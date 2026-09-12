@@ -2264,6 +2264,7 @@ dependencies = [
     { name = "pytesseract" },
     { name = "python-dotenv" },
     { name = "reportlab" },
+    { name = "tenacity" },
 ]
 
 [package.metadata]
@@ -2281,6 +2282,7 @@ requires-dist = [
     { name = "pytesseract", specifier = ">=0.3.10" },
     { name = "python-dotenv", specifier = ">=1.2.3" },
     { name = "reportlab", specifier = ">=5.0.1" },
+    { name = "tenacity", specifier = ">=8.2.0" },
 ]
 
 [[package]]

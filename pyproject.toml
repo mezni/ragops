@@ -16,4 +16,5 @@ dependencies = [
     "pytesseract>=0.3.10",
     "python-dotenv>=1.2.3",
     "reportlab>=5.0.1",
+    "tenacity>=8.2.0",
 ]

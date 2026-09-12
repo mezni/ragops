@@ -5,6 +5,8 @@ from typing import List, Dict, Any, Optional, Tuple
 from pydantic import BaseModel, Field
 import pypdf
 from bs4 import BeautifulSoup
+import chromadb
+from chromadb.config import Settings
 from dotenv import load_dotenv
 from openai import OpenAI
 
@@ -51,12 +53,16 @@ class RAGIndexingPipeline:
     # Default constants defined directly in the script
     OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
     OPENROUTER_EMBEDDING_MODEL = "openai/text-embedding-3-small"
+    CHROMA_PERSIST_DIR = "data/processed/chroma"
+    CHROMA_COLLECTION_NAME = "aether_wireless_docs"
 
     def __init__(
         self,
         chunk_size: int = 500,
         chunk_overlap: int = 50,
-        api_key: Optional[str] = None
+        api_key: Optional[str] = None,
+        persist_dir: Optional[str] = None,
+        collection_name: Optional[str] = None,
     ):
         if chunk_size <= 0:
             raise ValueError(f"chunk_size must be positive, got {chunk_size}")
@@ -68,7 +74,6 @@ class RAGIndexingPipeline:
             )
         self.chunk_size = chunk_size
         self.chunk_overlap = chunk_overlap
-        self.vector_store: Dict[str, EmbeddedChunk] = {}
 
         # Resolve API key from argument or environment
         resolved_api_key = api_key or os.getenv("OPENROUTER_API_KEY")
@@ -82,6 +87,20 @@ class RAGIndexingPipeline:
             base_url=self.OPENROUTER_BASE_URL,
             api_key=resolved_api_key,
         )
+
+        # Persistent vector store (ChromiaDB on disk — survives process restarts)
+        chroma_dir = Path(persist_dir or self.CHROMA_PERSIST_DIR)
+        chroma_dir.mkdir(parents=True, exist_ok=True)
+
+        self.chroma_client = chromadb.PersistentClient(
+            path=str(chroma_dir),
+            settings=Settings(anonymized_telemetry=False),
+        )
+        self.collection = self.chroma_client.get_or_create_collection(
+            name=collection_name or self.CHROMA_COLLECTION_NAME,
+            metadata={"hnsw:space": "cosine"},
+        )
+        self.vector_store = self.collection  # Compatibility alias
 
     @staticmethod
     def clean_text(raw_text: str) -> str:
@@ -223,10 +242,37 @@ class RAGIndexingPipeline:
         return embedded_chunks
 
     def upsert_to_vector_store(self, embedded_chunks: List[EmbeddedChunk]) -> int:
-        """Stores embedded chunks into the in-memory vector store."""
-        for item in embedded_chunks:
-            self.vector_store[item.chunk_id] = item
+        """Persists embedded chunks into the ChromaDB vector store on disk."""
+        if not embedded_chunks:
+            return 0
+
+        self.collection.upsert(
+            ids=[c.chunk_id for c in embedded_chunks],
+            embeddings=[c.embedding for c in embedded_chunks],
+            documents=[c.text for c in embedded_chunks],
+            metadatas=[
+                {**c.metadata, "doc_id": c.doc_id} for c in embedded_chunks
+            ],
+        )
         return len(embedded_chunks)
+
+    def search(
+        self,
+        query_text: str,
+        top_k: int = 5,
+    ) -> Dict[str, Any]:
+        """Embeds a natural-language query and returns top-K context blocks
+        from the persistent ChromaDB store."""
+        query_embedding = self.client.embeddings.create(
+            model=self.OPENROUTER_EMBEDDING_MODEL,
+            input=[query_text],
+        ).data[0].embedding
+
+        return self.collection.query(
+            query_embeddings=[query_embedding],
+            n_results=top_k,
+            include=["documents", "metadatas", "distances"],
+        )
 
     def run(self, file_path: Path) -> List[EmbeddedChunk]:
         """Executes full ingestion flow for a single target file."""
@@ -234,7 +280,9 @@ class RAGIndexingPipeline:
         chunks = self.chunk_document(doc)
         embedded_chunks = self.generate_embeddings(chunks)
         count = self.upsert_to_vector_store(embedded_chunks)
+        total = self.collection.count()
         print(f"[Pipeline Success] Indexed {count} chunks from: {file_path.name}")
+        print(f"[Persist] ChromaDB collection '{self.collection.name}' now holds {total} chunks")
         return embedded_chunks
 
 
@@ -257,5 +305,11 @@ if __name__ == "__main__":
         print(f"Chunk ID: {results[0].chunk_id}")
         print(f"Category: {results[0].metadata.get('category')}")
         print(f"Text snippet:\n{results[0].text[:200]!r}...")
+
+        # Sanity check: query the persistent store it was just written to
+        print("\n--- Sanity Search ---")
+        hits = pipeline.search("how long does a billing dispute investigation take?")
+        ids = hits.get("ids", [[]])[0]
+        print(f"Top-K hit ids: {ids[:3]}")
     except FileNotFoundError:
         print(f"[Error] File not found at {target_pdf}. Please ensure the PDF is placed in the sub-folder.")

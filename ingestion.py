@@ -4,7 +4,6 @@ import re
 from pathlib import Path
 from typing import List, Dict, Any, Optional, Tuple, Set
 from pydantic import BaseModel, Field
-import pypdf
 from bs4 import BeautifulSoup
 import chromadb
 from chromadb.config import Settings
@@ -90,6 +89,98 @@ class IngestionStage:
 
         return text.strip(), extracted_meta
 
+    @staticmethod
+    def _table_to_markdown(table: List[List[Optional[str]]]) -> str:
+        """Converts a pdfplumber table (list of rows) into a Markdown grid."""
+        if not table:
+            return ""
+
+        rows: List[List[str]] = []
+        for row in table:
+            cells = []
+            for cell in row or []:
+                if cell is None:
+                    cells.append("")
+                else:
+                    cells.append(" ".join(cell.split()))
+            rows.append(cells)
+
+        width = max(len(row) for row in rows)
+        rows = [row + [""] * (width - len(row)) for row in rows]
+
+        header = rows[0] if rows else []
+        separator = ["---"] * width
+        lines = [
+            "| " + " | ".join(header) + " |",
+            "| " + " | ".join(separator) + " |",
+        ]
+        for row in rows[1:]:
+            lines.append("| " + " | ".join(row) + " |")
+
+        return "\n".join(lines)
+
+    @staticmethod
+    def _ocr_text(file_path: Path, page_number: int) -> str:
+        """OCR fallback for scanned pages (no embedded text layer).
+
+        Requires pdf2image + pytesseract + the tesseract binary. Degrades
+        to "" (empty) when the toolchain is unavailable.
+        """
+        try:
+            from pdf2image import convert_from_path
+            import pytesseract
+        except ImportError:
+            return ""
+
+        try:
+            images = convert_from_path(
+                str(file_path),
+                first_page=page_number,
+                last_page=page_number,
+                dpi=200,
+            )
+            if not images:
+                return ""
+            return (pytesseract.image_to_string(images[0]) or "").strip()
+        except Exception:
+            # Covers missing tesseract binary and any render/OCR failure.
+            return ""
+
+    def _extract_pdf_text(self, file_path: Path) -> str:
+        """Extracts text and Markdown-rendered tables from a PDF via pdfplumber.
+
+        Falls back to OCR for scanned pages that have no embedded text.
+        """
+        import pdfplumber
+
+        page_parts: List[str] = []
+
+        with pdfplumber.open(file_path) as pdf:
+            for page_number, page in enumerate(pdf.pages, start=1):
+                parts: List[str] = []
+
+                page_text = page.extract_text() or ""
+                if page_text:
+                    parts.append(page_text)
+
+                for table in page.extract_tables() or []:
+                    table_md = self._table_to_markdown(table)
+                    if table_md:
+                        parts.append(table_md)
+
+                content = "\n\n".join(parts)
+
+                # Scanned page — no text layer, no tables: try OCR.
+                if not content.strip():
+                    ocr = self._ocr_text(file_path, page_number)
+                    if ocr:
+                        content = ocr
+
+                if content.strip():
+                    page_parts.append(content)
+
+        return "\n\n".join(page_parts)
+
     def run(self, file_path: Path) -> Document:
         """Reads a .pdf or .txt file, cleans content, and constructs a Document."""
         if not file_path.exists():
@@ -98,11 +189,7 @@ class IngestionStage:
         raw_text = ""
         # 1. Extract raw text from file
         if file_path.suffix.lower() == ".pdf":
-            reader = pypdf.PdfReader(file_path)
-            for page in reader.pages:
-                page_text = page.extract_text()
-                if page_text:
-                    raw_text += page_text + "\n"
+            raw_text = self._extract_pdf_text(file_path)
         elif file_path.suffix.lower() in [".txt", ".md"]:
             raw_text = file_path.read_text(encoding="utf-8")
         else:

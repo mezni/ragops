@@ -6,7 +6,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import pdfplumber
 
-from ingestion.schemas import Document
+from ingestion.schemas import Document, SourceReference
 from utils.markdown import table_to_markdown
 from utils.ocr import ocr_text
 from utils.text_processing import clean_text
@@ -105,12 +105,32 @@ class DocumentLoader:
             doc_id=file_path.stem,
             content=body_text,
             source=str(file_path),
+            data_source="filesystem",
             metadata={
                 "file_name": file_path.name,
                 "file_type": file_path.suffix.lower(),
                 "category": file_path.parent.name,  # Captures "billing" from path
+                "data_source": "filesystem",
                 "content_hash": content_hash,
                 **extracted_meta,  # Saved into Chroma payload rather than chunk text
+            }
+        )
+
+    def from_reference(self, ref: SourceReference) -> Document:
+        """Loads a document from a source reference, stamping source metadata.
+
+        Unlike :meth:`run`, category / doc_id / data_source come from the
+        reference rather than being re-derived from the file path.
+        """
+        doc = self.run(Path(ref.locator))
+        return doc.model_copy(
+            update={
+                "doc_id": ref.doc_id,
+                "metadata": {
+                    **doc.metadata,
+                    "category": ref.category,
+                    "data_source": ref.data_source,
+                },
             }
         )
 

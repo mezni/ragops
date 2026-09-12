@@ -4,6 +4,7 @@ from types import SimpleNamespace
 import pytest
 
 from ingestion import RAGIndexingPipeline
+from ingestion.sources import FileSystemSource
 from tests.conftest import DATA_RAW
 
 
@@ -121,6 +122,48 @@ def test_run_directory_indexes_all_matching_files(pipeline, tmp_path):
     assert not failed
     assert len(results) == 2
     assert pipeline.collection.count() == 2
+
+
+def test_ingest_source_indexes_directory_tree_with_data_source(pipeline, tmp_path):
+    docs = tmp_path / "docs"
+    (docs / "billing").mkdir(parents=True)
+    (docs / "support").mkdir()
+    (docs / "billing" / "a.txt").write_text("Alpha policy content.\n", encoding="utf-8")
+    (docs / "billing" / "escalation").mkdir()
+    (docs / "billing" / "escalation" / "b.md").write_text(
+        "# Escalation\nEscalation policy.\n", encoding="utf-8"
+    )
+    (docs / "support" / "c.txt").write_text("Support FAQ text.\n", encoding="utf-8")
+
+    results, failed = pipeline.ingest_source(FileSystemSource(docs))
+
+    assert not failed
+    assert len(results) == 3
+    assert pipeline.collection.count() == 3
+
+    refs_by_doc = {
+        ref.doc_id: ref
+        for ref in FileSystemSource(docs).discover()
+    }
+    for result in results:
+        meta = result.metadata
+        assert meta["data_source"] == "filesystem"
+        assert meta["category"] == refs_by_doc[result.doc_id].category
+
+
+def test_ingest_source_isolates_broken_file(pipeline, tmp_path):
+    docs = tmp_path / "docs"
+    (docs / "billing").mkdir(parents=True)
+    good = docs / "billing" / "good.txt"
+    good.write_text("Valid policy text.\n", encoding="utf-8")
+    bad = docs / "billing" / "broken.pdf"
+    bad.write_bytes(b"%PDF-1.4\nnot a real pdf\n%%EOF")
+
+    results, failed = pipeline.ingest_source(FileSystemSource(docs))
+
+    assert failed == [str(bad)]
+    assert results  # healthy file still indexed
+    assert pipeline.collection.count() == len(results)
 
 
 def test_real_pdf_pipeline_produces_markdown_tables(monkeypatch, tmp_path):

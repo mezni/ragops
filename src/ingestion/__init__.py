@@ -6,7 +6,8 @@ still work: ``from ingestion import ...``.
 
 from core.logging import configure_logging
 from ingestion.pipeline import main, RAGIndexingPipeline
-from ingestion.schemas import Document, EmbeddedChunk, TextChunk
+from ingestion.schemas import Document, EmbeddedChunk, SourceReference, TextChunk
+from ingestion.sources import DocumentSource, FileSystemSource
 from ingestion.stages import (
     Chunker,
     ChunkerStage,
@@ -23,11 +24,14 @@ __all__ = [
     "ChunkerStage",
     "Document",
     "DocumentLoader",
+    "DocumentSource",
     "EmbeddedChunk",
     "Embedder",
     "EmbeddingStage",
+    "FileSystemSource",
     "IngestionStage",
     "RAGIndexingPipeline",
+    "SourceReference",
     "TextChunk",
     "VectorStore",
     "VectorStoreStage",

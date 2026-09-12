@@ -9,6 +9,7 @@ from dotenv import load_dotenv
 from core.logging import configure_logging
 from core.resiliency import embedding_request
 from ingestion.schemas import Document, EmbeddedChunk, TextChunk
+from ingestion.sources import DocumentSource, FileSystemSource
 from ingestion.stages import Chunker, DocumentLoader, Embedder, VectorStore
 
 # Load the project-root .env (OpenRouter API key) at import time.
@@ -106,6 +107,10 @@ class RAGIndexingPipeline:
         costs). If the hash differs, stale chunks are purged first.
         """
         doc = self.stages["loader"].run(file_path)
+        return self._index_document(doc)
+
+    def _index_document(self, doc: Document) -> List[EmbeddedChunk]:
+        """Shared indexing core: dedup check, purge, chunk, embed, persist."""
         content_hash = doc.metadata.get("content_hash")
 
         existing_hashes = self.stages["store"].get_document_hashes(doc.doc_id)
@@ -131,9 +136,10 @@ class RAGIndexingPipeline:
         count = self.stages["store"].upsert(embedded_chunks)
         total = self.stages["store"].count
         logger.info(
-            "[Pipeline Success] Indexed %d chunks from: %s",
+            "[Pipeline Success] Indexed %d chunks from: %s (source=%s)",
             count,
-            file_path.name,
+            doc.source,
+            doc.metadata.get("data_source", doc.data_source),
         )
         logger.info(
             "[Persist] ChromaDB collection '%s' now holds %d chunks",
@@ -173,26 +179,51 @@ class RAGIndexingPipeline:
         )
         return all_results, failed
 
+    def ingest_source(
+        self,
+        source: DocumentSource,
+    ) -> Tuple[List[EmbeddedChunk], List[str]]:
+        """Ingests every document discovered by ``source``.
+
+        Documents are discovered (e.g. ``FileSystemSource`` scans the
+        directory tree recursively); each reference is loaded, stamped
+        with its ``data_source``, and indexed individually so a single
+        broken document never aborts the source. Returns (indexed
+        chunks, list of failed locators).
+        """
+        references = source.discover()
+        all_results: List[EmbeddedChunk] = []
+        failed: List[str] = []
+
+        for ref in references:
+            try:
+                doc = self.stages["loader"].from_reference(ref)
+                all_results.extend(self._index_document(doc))
+            except Exception:
+                logger.exception(
+                    "[Skipped] %s (%s) failed and was isolated from the batch.",
+                    ref.locator,
+                    ref.data_source,
+                )
+                failed.append(ref.locator)
+
+        logger.info(
+            "[Source Ingest] %s: %d ok, %d failed, %d chunks indexed.",
+            source.source_type,
+            len(references) - len(failed),
+            len(failed),
+            len(all_results),
+        )
+        return all_results, failed
+
     def run_directory(
         self,
         directory: Path,
         patterns: Tuple[str, ...] = ("*.pdf", "*.txt", "*.md"),
     ) -> Tuple[List[EmbeddedChunk], List[str]]:
-        """Convenience wrapper: collects matching files under ``directory``
-        (recursive) and ingests them via :meth:`run_batch`."""
-        files = sorted(
-            fp
-            for pattern in patterns
-            for fp in Path(directory).rglob(pattern)
-        )
-        if not files:
-            logger.warning(
-                "[Batch] No files matched %s under %s",
-                patterns,
-                directory,
-            )
-            return [], []
-        return self.run_batch(files)
+        """Convenience wrapper: scans ``directory`` recursively and ingests
+        every matching document via a :class:`FileSystemSource`."""
+        return self.ingest_source(FileSystemSource(directory, patterns=patterns))
 
 
 # =====================================================================

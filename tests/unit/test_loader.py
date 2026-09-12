@@ -25,7 +25,7 @@ def billing_dir(tmp_path) -> Path:
 def test_extract_frontmatter_parses_metadata():
     body, meta = DocumentLoader.extract_frontmatter(FRONTMATTER + BODY)
     assert meta["document_id"] == "AW-X-001"
-    assert meta["version"] == "1.2"
+    assert meta["doc_version"] == "1.2"
     assert meta["department"] == "Engineering"
     assert meta["last_updated"] == "2026-01-15"
     assert meta["status"] == "Active"
@@ -42,7 +42,7 @@ def test_run_txt_constructs_document(billing_dir):
     assert doc.doc_id == "AW-X-001_policy"
     assert doc.metadata["category"] == "billing"
     assert doc.metadata["file_type"] == ".txt"
-    assert doc.metadata["version"] == "1.2"
+    assert doc.metadata["doc_version"] == "1.2"
     assert doc.metadata["content_hash"]
     assert "Some actual policy body text." in doc.content
 

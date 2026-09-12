@@ -20,10 +20,12 @@ class DocumentLoader:
         """
         extracted_meta = {}
 
-        # Regex patterns to capture administrative header blocks
+        # Regex patterns to capture administrative header blocks.
+        # "version" is a reserved payload tag (indexed/rollback version),
+        # so the document's authored version is stored as "doc_version".
         patterns = {
             "document_id": r"Document ID\s*:\s*([A-Z0-9-]+)",
-            "version": r"Version\s*:\s*([\d.]+)",
+            "doc_version": r"Version\s*:\s*([\d.]+)",
             "department": r"Department\s*:\s*([A-Za-z]+)",
             "last_updated": r"Last Updated\s*:\s*([\d-]+)",
             "status": r"Status\s*:\s*([A-Za-z]+)",

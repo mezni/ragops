@@ -52,3 +52,47 @@ def test_delete_document_removes_only_that_doc(tmp_path):
     assert store.delete_document("drop") == 5
     assert store.count == 5
     assert store.get_document_hashes("drop") == set()
+
+
+def test_upsert_stamps_version_and_active_tags(tmp_path):
+    store = VectorStore(persist_dir=str(tmp_path / "chroma"))
+    store.upsert(_mk_chunks(), version=3, is_active=True)
+
+    result = store.collection.get(
+        where={"doc_id": "d"},
+        include=["metadatas"],
+    )
+    metas = result["metadatas"]
+    assert all(m["version"] == 3 for m in metas)
+    assert all(m["is_active"] is True for m in metas)
+
+
+def _mk_version_chunks(prefix: str, n: int = 4, dims: int = 8):
+    return [
+        EmbeddedChunk(
+            chunk_id=f"{prefix}_c{i}",
+            doc_id="d",
+            text=f"Version content {i}",
+            embedding=[float(i)] * dims,
+            metadata={},
+        )
+        for i in range(n)
+    ]
+
+
+def test_deactivate_then_activate_version(tmp_path):
+    store = VectorStore(persist_dir=str(tmp_path / "chroma"))
+    store.upsert(_mk_version_chunks("d_v0"), version=0, is_active=True)
+    store.upsert(_mk_version_chunks("d_v1"), version=1, is_active=True)
+
+    # A content change retires the old version's chunks (kept, not deleted).
+    assert store.deactivate_document("d") == 8
+    assert store.activate_version("d", version=1) == 4
+
+    tags = store.get_document_versions("d")
+    assert {t["version"]: t["is_active"] for t in tags} == {0: False, 1: True}
+
+    # Roll back: v0 re-activated, v1 retired.
+    store.activate_version("d", version=0)
+    tags = store.get_document_versions("d")
+    assert {t["version"]: t["is_active"] for t in tags} == {0: True, 1: False}

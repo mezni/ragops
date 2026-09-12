@@ -11,6 +11,8 @@ from tenacity import (
     wait_exponential_jitter,
 )
 
+from core.config import get_settings
+
 logger = logging.getLogger(__name__)
 
 # OpenRouter calls that can transiently fail: rate limits (429), socket
@@ -21,11 +23,18 @@ _RETRYABLE_ERRORS = (
     openai.APIConnectionError,
 )
 
+_resiliency = get_settings().resiliency
+
 
 @retry(
     reraise=True,
-    stop=stop_after_attempt(5),
-    wait=wait_exponential_jitter(initial=1, max=30, exp_base=2, jitter=2),
+    stop=stop_after_attempt(_resiliency.max_attempts),
+    wait=wait_exponential_jitter(
+        initial=_resiliency.wait_initial,
+        max=_resiliency.wait_max,
+        exp_base=_resiliency.wait_exp_base,
+        jitter=_resiliency.wait_jitter,
+    ),
     retry=retry_if_exception_type(_RETRYABLE_ERRORS),
     before_sleep=before_sleep_log(logger, logging.WARNING),
 )

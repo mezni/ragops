@@ -2,15 +2,16 @@ from types import SimpleNamespace
 
 import pytest
 
+from core.config import get_settings
 from ingestion import cli
 from ingestion.sources import FileSystemSource
 
 
 def test_default_input_dir_is_data_raw():
     args = cli.build_parser().parse_args([])
-    assert args.input_dir == "data/raw"
+    assert args.input_dir == get_settings().paths.raw_dir
     assert args.query
-    assert args.top_k == 3
+    assert args.top_k == get_settings().search.top_k
     assert args.no_search is False
 
 

@@ -1,5 +1,7 @@
 from pathlib import Path
 
+from core.config import get_settings
+
 
 def ocr_text(file_path: Path, page_number: int) -> str:
     """OCR fallback for scanned pages (no embedded text layer).
@@ -18,7 +20,7 @@ def ocr_text(file_path: Path, page_number: int) -> str:
             str(file_path),
             first_page=page_number,
             last_page=page_number,
-            dpi=200,
+            dpi=get_settings().ocr.dpi,
         )
         if not images:
             return ""

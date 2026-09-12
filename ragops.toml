@@ -1,0 +1,55 @@
+# Centralized configuration for the Aether Wireless RAG ingestion pipeline.
+#
+# Precedence (lowest to highest):
+#   1. Defaults defined in src/core/config.py
+#   2. This file (ragops.toml at the repo root)
+#   3. RAGOPS_<SECTION>_<FIELD> environment variables
+#      (e.g. RAGOPS_CHUNKING_CHUNK_SIZE=750, RAGOPS_LOGGING_LEVEL=DEBUG)
+#
+# A custom config file path can be set via the RAGOPS_CONFIG env variable.
+
+[paths]
+raw_dir = "data/raw"
+
+[chunking]
+chunk_size = 500
+chunk_overlap = 50
+separators = ["\n\n", "\n", ". ", " ", ""]
+
+[embedding]
+openrouter_base_url = "https://openrouter.ai/api/v1"
+model = "openai/text-embedding-3-small"
+batch_size = 32
+
+[chroma]
+persist_dir = "data/processed/chroma"
+collection_name = "aether_wireless_docs"
+hnsw_space = "cosine"
+anonymized_telemetry = false
+
+[search]
+top_k = 5
+sanity_query = "how long does a billing dispute investigation take?"
+
+[sources]
+patterns = ["*.pdf", "*.txt", "*.md"]
+
+[resiliency]
+max_attempts = 5
+wait_initial = 1.0
+wait_max = 30.0
+wait_exp_base = 2.0
+wait_jitter = 2.0
+
+[ocr]
+dpi = 200
+
+[logging]
+level = "INFO"
+root_level = "WARNING"
+format = "[%(asctime)s] %(levelname)s %(name)s: %(message)s"
+datefmt = "%Y-%m-%d %H:%M:%S"
+console_handler_name = "ragops-console"
+package_loggers = ["ingestion", "core", "utils"]
+hash_preview_len = 8
+snippet_length = 200

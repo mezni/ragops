@@ -9,11 +9,20 @@ import logging
 from pathlib import Path
 from typing import Optional, Sequence
 
+from core.config import get_settings
 from ingestion import FileSystemSource, RAGIndexingPipeline, configure_logging
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_QUERY = "how long does a billing dispute investigation take?"
+settings = get_settings()
+
+DEFAULT_QUERY = settings.search.sanity_query
+DEFAULT_INPUT_DIR = settings.paths.raw_dir
+DEFAULT_CHUNK_SIZE = settings.chunking.chunk_size
+DEFAULT_CHUNK_OVERLAP = settings.chunking.chunk_overlap
+DEFAULT_PATTERNS = settings.sources.patterns
+DEFAULT_PERSIST_DIR = settings.chroma.persist_dir
+DEFAULT_TOP_K = settings.search.top_k
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -24,8 +33,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "input_dir",
         nargs="?",
-        default="data/raw",
-        help="Directory to scan recursively (default: data/raw)",
+        default=DEFAULT_INPUT_DIR,
+        help=f"Directory to scan recursively (default: {DEFAULT_INPUT_DIR})",
     )
     parser.add_argument(
         "--query",
@@ -35,20 +44,20 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--top-k",
         type=int,
-        default=3,
-        help="Number of search hits to log (default: 3)",
+        default=DEFAULT_TOP_K,
+        help=f"Number of search hits to log (default: {DEFAULT_TOP_K})",
     )
     parser.add_argument(
         "--chunk-size",
         type=int,
-        default=500,
-        help="Chunk size in characters (default: 500)",
+        default=DEFAULT_CHUNK_SIZE,
+        help=f"Chunk size in characters (default: {DEFAULT_CHUNK_SIZE})",
     )
     parser.add_argument(
         "--chunk-overlap",
         type=int,
-        default=50,
-        help="Chunk overlap in characters (default: 50)",
+        default=DEFAULT_CHUNK_OVERLAP,
+        help=f"Chunk overlap in characters (default: {DEFAULT_CHUNK_OVERLAP})",
     )
     parser.add_argument(
         "--patterns",
@@ -58,8 +67,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--persist-dir",
-        default="data/processed/chroma",
-        help="ChromaDB persistence directory (default: data/processed/chroma)",
+        default=DEFAULT_PERSIST_DIR,
+        help=f"ChromaDB persistence directory (default: {DEFAULT_PERSIST_DIR})",
     )
     parser.add_argument(
         "--no-search",
@@ -74,10 +83,10 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     args = build_parser().parse_args(argv)
     configure_logging()
 
-    patterns = tuple(args.patterns) if args.patterns else None
+    patterns = tuple(args.patterns) if args.patterns else DEFAULT_PATTERNS
     source = FileSystemSource(
         args.input_dir,
-        patterns=patterns or FileSystemSource.DEFAULT_PATTERNS,
+        patterns=patterns,
     )
 
     try:
@@ -102,7 +111,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         logger.info("Chunk ID: %s", first.chunk_id)
         logger.info("Category: %s", first.metadata.get("category"))
         logger.info("Source: %s", first.metadata.get("data_source"))
-        logger.info("Text snippet: %r...", first.text[:200])
+        logger.info("Text snippet: %r...", first.text[:settings.logging.snippet_length])
     elif failed:
         logger.error(
             "[Error] No documents indexed; %d file(s) failed.",

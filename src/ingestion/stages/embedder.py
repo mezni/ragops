@@ -1,8 +1,9 @@
 import logging
-from typing import List
+from typing import List, Optional
 
 from openai import OpenAI
 
+from core.config import get_settings
 from core.resiliency import embedding_request
 from ingestion.schemas import EmbeddedChunk, TextChunk
 
@@ -19,12 +20,13 @@ class Embedder:
     def run(
         self,
         chunks: List[TextChunk],
-        batch_size: int = 32,
+        batch_size: Optional[int] = None,
     ) -> List[EmbeddedChunk]:
         """Generates real vector embeddings in batches using OpenRouter."""
         if not chunks:
             return []
 
+        batch_size = batch_size or get_settings().embedding.batch_size
         embedded_chunks: List[EmbeddedChunk] = []
 
         # Process chunks in batches to optimize network efficiency

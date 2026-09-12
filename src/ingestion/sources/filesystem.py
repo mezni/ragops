@@ -1,11 +1,14 @@
 import logging
 from pathlib import Path
-from typing import List, Tuple, Union
+from typing import List, Optional, Tuple, Union
 
+from core.config import get_settings
 from ingestion.schemas import SourceReference
 from ingestion.sources.base import DocumentSource
 
 logger = logging.getLogger(__name__)
+
+_settings = get_settings()
 
 
 class FileSystemSource(DocumentSource):
@@ -18,15 +21,15 @@ class FileSystemSource(DocumentSource):
 
     source_type = "filesystem"
 
-    DEFAULT_PATTERNS: Tuple[str, ...] = ("*.pdf", "*.txt", "*.md")
+    DEFAULT_PATTERNS: Tuple[str, ...] = _settings.sources.patterns
 
     def __init__(
         self,
         root_dir: Union[Path, str],
-        patterns: Tuple[str, ...] = DEFAULT_PATTERNS,
+        patterns: Optional[Tuple[str, ...]] = None,
     ):
         self.root_dir = Path(root_dir)
-        self.patterns = patterns or self.DEFAULT_PATTERNS
+        self.patterns = tuple(patterns) if patterns else self.DEFAULT_PATTERNS
 
     def discover(self) -> List[SourceReference]:
         if not self.root_dir.is_dir():

@@ -1,9 +1,12 @@
 import logging
 from typing import List, Optional, Tuple
 
+from core.config import get_settings
 from ingestion.schemas import Document, TextChunk
 
 logger = logging.getLogger(__name__)
+
+_settings = get_settings()
 
 
 class Chunker:
@@ -16,15 +19,20 @@ class Chunker:
     window of ``chunk_overlap`` from the previous chunk.
     """
 
-    # Hierarchy of separators, from most to least natural.
-    DEFAULT_SEPARATORS: Tuple[str, ...] = ("\n\n", "\n", ". ", " ", "")
+    # Hierarchy of separators, from most to least natural (see config).
+    DEFAULT_SEPARATORS: Tuple[str, ...] = _settings.chunking.separators
 
     def __init__(
         self,
-        chunk_size: int = 500,
-        chunk_overlap: int = 50,
+        chunk_size: Optional[int] = None,
+        chunk_overlap: Optional[int] = None,
         separators: Optional[Tuple[str, ...]] = None,
     ):
+        cfg = _settings.chunking
+        chunk_size = chunk_size if chunk_size is not None else cfg.chunk_size
+        chunk_overlap = (
+            chunk_overlap if chunk_overlap is not None else cfg.chunk_overlap
+        )
         if chunk_size <= 0:
             raise ValueError(f"chunk_size must be positive, got {chunk_size}")
         if chunk_overlap < 0:
